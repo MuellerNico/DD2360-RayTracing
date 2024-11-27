@@ -2,12 +2,10 @@ CUDA_PATH     ?= /usr/local/cuda
 HOST_COMPILER  = g++
 NVCC           = $(CUDA_PATH)/bin/nvcc -ccbin $(HOST_COMPILER)
 
-# select one of these for Debug vs. Release
-#NVCC_DBG       = -g -G
-NVCC_DBG       =
+# Debug flags including line info for profiling
+NVCC_DBG       = -lineinfo
 
 NVCCFLAGS      = $(NVCC_DBG) -m64
-#GENCODE_FLAGS  = -gencode arch=compute_60,code=sm_60
 GENCODE_FLAGS  = -gencode arch=compute_75,code=sm_75 # T4 GPU (Google Colab)
 
 SRCS = main.cu
@@ -27,12 +25,9 @@ out.jpg: out.ppm
 	rm -f out.jpg
 	ppmtojpeg out.ppm > out.jpg
 
-profile_basic: cudart
-	nvprof ./cudart > out.ppm
-
-# use nvprof --query-metrics
-profile_metrics: cudart
-	nvprof --metrics achieved_occupancy,inst_executed,inst_fp_32,inst_fp_64,inst_integer ./cudart > out.ppm
+# Profile with source line information
+profile: cudart
+	nsys profile --stats=true --backtrace=dwarf --trace=cuda,nvtx ./cudart 1
 
 clean:
-	rm -f cudart cudart.o out.ppm out.jpg
+	rm -f cudart cudart.o out.ppm out.jpg *.nsys-rep *.sqlite
