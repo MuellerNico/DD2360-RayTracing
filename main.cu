@@ -156,8 +156,8 @@ int main(int argc, char **argv) {
     std::cerr << "Rendering a " << nx << "x" << ny << " image with " << ns << " samples per pixel ";
     std::cerr << "in " << tx << "x" << ty << " blocks.\n";
 
-    int output_mode = 0; // 0 = to stdout, 1 = disabled, 2 = to window (ToDo)
-    if (arc > 1) {
+    int output_mode = 0; // 0 = to stdout (default), 1 = disabled, 2 = to window (ToDo)
+    if (argc > 1) {
         output_mode = std::stoi(argv[1]);
     }
     std::cerr << "Output mode: " << output_mode << "\n";
