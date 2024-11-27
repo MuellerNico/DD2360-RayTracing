@@ -8,6 +8,7 @@
 #include "hitable_list.h"
 #include "camera.h"
 #include "material.h"
+#include <string>
 
 // limited version of checkCudaErrors from helper_cuda.h in CUDA examples
 #define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
@@ -145,7 +146,7 @@ __global__ void free_world(hitable **d_list, hitable **d_world, camera **d_camer
     delete *d_camera;
 }
 
-int main() {
+int main(int argc, char **argv) {
     int nx = 1200;
     int ny = 800;
     int ns = 10;
@@ -154,6 +155,12 @@ int main() {
 
     std::cerr << "Rendering a " << nx << "x" << ny << " image with " << ns << " samples per pixel ";
     std::cerr << "in " << tx << "x" << ty << " blocks.\n";
+
+    int output_mode = 0; // 0 = to stdout, 1 = disabled, 2 = to window (ToDo)
+    if (arc > 1) {
+        output_mode = std::stoi(argv[1]);
+    }
+    std::cerr << "Output mode: " << output_mode << "\n";
 
     int num_pixels = nx*ny;
     size_t fb_size = num_pixels*sizeof(vec3);
@@ -208,7 +215,11 @@ int main() {
             int ir = int(255.99*fb[pixel_index].r());
             int ig = int(255.99*fb[pixel_index].g());
             int ib = int(255.99*fb[pixel_index].b());
-            std::cout << ir << " " << ig << " " << ib << "\n";
+            if (output_mode == 0) {
+                std::cout << ir << " " << ig << " " << ib << "\n";
+            } else if (output_mode == 2) {
+                // ToDo: implement GUI coupling (Chris)
+            }
         }
     }
 
