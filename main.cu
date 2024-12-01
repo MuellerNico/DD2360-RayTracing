@@ -45,9 +45,9 @@ __device__ vec3 color(const ray& r, hitable **world, curandState *local_rand_sta
             }
         }
         else {
-            vec3 unit_direction = unit_vector(cur_ray.direction());
-            float t = 0.5f*(unit_direction.y() + 1.0f);
-            vec3 c = (1.0f-t)*vec3(1.0, 1.0, 1.0) + t*vec3(0.5, 0.7, 1.0);
+	        const vec3 unit_direction = unit_vector(cur_ray.direction());
+	        const float t = 0.5f*(unit_direction.y() + 1.0f);
+	        const vec3 c = (1.0f-t)*vec3(1.0, 1.0, 1.0) + t*vec3(0.5, 0.7, 1.0);
             return cur_attenuation * c;
         }
     }
@@ -103,8 +103,8 @@ __global__ void create_world(hitable **d_list, hitable **d_world, camera **d_cam
         int i = 1;
         for(int a = -11; a < 11; a++) {
             for(int b = -11; b < 11; b++) {
-                float choose_mat = RND;
-                vec3 center(a+RND,0.2,b+RND);
+	            const float choose_mat = RND;
+	            const vec3 center(a+RND,0.2,b+RND);
                 if(choose_mat < 0.8f) {
                     d_list[i++] = new sphere(center, 0.2,
                                              new lambertian(vec3(RND*RND, RND*RND, RND*RND)));
@@ -124,10 +124,10 @@ __global__ void create_world(hitable **d_list, hitable **d_world, camera **d_cam
         *rand_state = local_rand_state;
         *d_world  = new hitable_list(d_list, 22*22+1+3);
 
-        vec3 lookfrom(13,2,3);
-        vec3 lookat(0,0,0);
-        float dist_to_focus = 10.0; (lookfrom-lookat).length();
-        float aperture = 0.1;
+        const vec3 lookfrom(13,2,3);
+        const vec3 lookat(0,0,0);
+        constexpr float dist_to_focus = 10.0; (lookfrom-lookat).length();
+        constexpr float aperture = 0.1;
         *d_camera   = new camera(lookfrom,
                                  lookat,
                                  vec3(0,1,0),
@@ -148,11 +148,11 @@ __global__ void free_world(hitable **d_list, hitable **d_world, camera **d_camer
 }
 
 int main(int argc, char **argv) {
-    int nx = 1200;
-    int ny = 800;
-    int ns = 10;
-    int tx = 8;
-    int ty = 8;
+	constexpr int nx = 1200;
+	constexpr int ny = 800;
+	constexpr int ns = 10;
+	constexpr int tx = 8;
+	constexpr int ty = 8;
 
     std::cerr << "Rendering a " << nx << "x" << ny << " image with " << ns << " samples per pixel ";
     std::cerr << "in " << tx << "x" << ty << " blocks.\n";
@@ -163,18 +163,18 @@ int main(int argc, char **argv) {
     }
     std::cerr << "Output mode: " << output_mode << "\n";
 
-    int num_pixels = nx*ny;
-    size_t fb_size = num_pixels*sizeof(vec3);
+	constexpr int num_pixels = nx*ny;
+	constexpr size_t fb_size = num_pixels*sizeof(vec3);
 
     // allocate FB
     vec3 *fb;
-    checkCudaErrors(cudaMallocManaged((void **)&fb, fb_size));
+    checkCudaErrors(cudaMallocManaged(reinterpret_cast<void**>(&fb), fb_size));
 
     // allocate random state
     curandState *d_rand_state;
-    checkCudaErrors(cudaMalloc((void **)&d_rand_state, num_pixels*sizeof(curandState)));
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_rand_state), num_pixels*sizeof(curandState)));
     curandState *d_rand_state2;
-    checkCudaErrors(cudaMalloc((void **)&d_rand_state2, 1*sizeof(curandState)));
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_rand_state2), 1*sizeof(curandState)));
 
     // we need that 2nd random state to be initialized for the world creation
     rand_init<<<1,1>>>(d_rand_state2);
@@ -183,12 +183,12 @@ int main(int argc, char **argv) {
 
     // make our world of hitables & the camera
     hitable **d_list;
-    int num_hitables = 22*22+1+3;
-    checkCudaErrors(cudaMalloc((void **)&d_list, num_hitables*sizeof(hitable *)));
+	constexpr int num_hitables = 22*22+1+3;
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_list), num_hitables*sizeof(hitable *)));
     hitable **d_world;
-    checkCudaErrors(cudaMalloc((void **)&d_world, sizeof(hitable *)));
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_world), sizeof(hitable *)));
     camera **d_camera;
-    checkCudaErrors(cudaMalloc((void **)&d_camera, sizeof(camera *)));
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_camera), sizeof(camera *)));
     create_world<<<1,1>>>(d_list, d_world, d_camera, nx, ny, d_rand_state2);
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
@@ -205,7 +205,7 @@ int main(int argc, char **argv) {
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
     stop = clock();
-    double timer_seconds = ((double)(stop - start)) / CLOCKS_PER_SEC;
+	const double timer_seconds = static_cast<double>(stop - start) / CLOCKS_PER_SEC;
     std::cerr << "took " << timer_seconds << " seconds.\n";
 
     // Output FB as Image
@@ -213,10 +213,10 @@ int main(int argc, char **argv) {
     outfile << "P3\n" << nx << " " << ny << "\n255\n";
     for (int j = ny - 1; j >= 0; j--) {
         for (int i = 0; i < nx; i++) {
-            size_t pixel_index = j * nx + i;
-            int ir = static_cast<int>(255.99 * fb[pixel_index].r());
-            int ig = static_cast<int>(255.99 * fb[pixel_index].g());
-            int ib = static_cast<int>(255.99 * fb[pixel_index].b());
+	        const size_t pixel_index = j * nx + i;
+	        const int ir = static_cast<int>(255.99 * fb[pixel_index].r());
+	        const int ig = static_cast<int>(255.99 * fb[pixel_index].g());
+	        const int ib = static_cast<int>(255.99 * fb[pixel_index].b());
             if (output_mode == 0) {
                 outfile << ir << " " << ig << " " << ib << "\n";
             }
