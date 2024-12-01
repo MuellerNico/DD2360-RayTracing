@@ -3,3 +3,221 @@ cudart.o
 out.jpg
 out.ppm
 *:Zone.Identifier
+out/build/*
+
+# ============================
+# Visual Studio & C++ Defaults
+# ============================
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# User-specific files (MonoDevelop/Xamarin Studio)
+*.userprefs
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio 2015/2017 cache/options directory
+.vs/
+# Uncomment if you have tasks that create the project's static files in wwwroot
+#wwwroot/
+
+# MSTest test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# NUnit
+*.VisualState.xml
+TestResult.xml
+nunit-*.xml
+
+# Build Results of an ATL Project
+[Dd]ebugPS/
+[Rr]eleasePS/
+dlldata.c
+
+# BenchmarkDotNet Artifacts
+BenchmarkDotNet.Artifacts/
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# ASP.NET Scaffolding
+ScaffoldingReadMe.txt
+
+# StyleCop
+StyleCopReport.xml
+
+# Files built by Visual Studio
+*_i.c
+*_p.c
+*_h.h
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.pdb
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlh
+*.tli
+*.tmp
+*.tmp_proj
+*.log
+*.vspscc
+*.vssscc
+*.scc
+
+# Others
+*.cache
+*.dbmdl
+*.bak
+*.backup
+*.BLOB
+*.CLOBBER
+*.pyo
+*.pyc
+*.o
+*.so
+*.exe
+*.dll
+*.lib
+*.msi
+*.msp
+*.cab
+*.suo
+*.ncb
+*.sdf
+*.cachefile
+*.dbmdl
+*.sln.docstates
+
+# ============================
+# CMake Build Artifacts
+# ============================
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake
+
+# CMake build directories
+/build/
+/Build/
+/BUILD/
+
+# Visual Studio CMake build
+/*.sdf
+/*.vcxproj.user
+/*.vcxproj.filters
+
+# ============================
+# CUDA Specific
+# ============================
+
+# CUDA build artifacts
+*.cu.o
+*.ptx
+*.cubin
+*.fatbin
+
+# ============================
+# Temporary Files
+# ============================
+
+# Temporary files
+*~
+*.swp
+*.swo
+*.tmp
+*.temp
+
+# ============================
+# Other IDEs and Tools
+# ============================
+
+# Rider
+.idea/
+*.sln.iml
+
+# VS Code
+.vscode/
+
+# JetBrains
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# ============================
+# OS Specific
+# ============================
+
+# Windows image file caches
+Thumbs.db
+ehthumbs.db
+
+# Folder config file
+Desktop.ini
+
+# Recycle Bin used on file shares
+$RECYCLE.BIN/
+
+# ============================
+# Miscellaneous
+# ============================
+
+# Ignore backup files
+*.bak
+*.old
+*.orig
+*.tmp
+*.temp
+
+# Ignore compressed files
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Ignore package distribution directories
+node_modules/
+bower_components/
+jspm_packages/
+
+# Ignore dotenv environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Ignore log files
+*.log
