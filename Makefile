@@ -3,7 +3,7 @@ HOST_COMPILER  = g++
 NVCC           = $(CUDA_PATH)/bin/nvcc -ccbin $(HOST_COMPILER)
 
 # Debug flags including line info for profiling
-NVCC_DBG       = -g -Xcompiler -rdynamic -src-in-ptx
+NVCC_DBG       = -g -Xcompiler -rdynamic -src-in-ptx -lineinfo
 
 NVCCFLAGS      = $(NVCC_DBG) -m64
 GENCODE_FLAGS  = -gencode arch=compute_75,code=sm_75 # T4 GPU (Google Colab)

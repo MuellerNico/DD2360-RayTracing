@@ -1,0 +1,59 @@
+
+
+nsys profile --stats=true --backtrace=dwarf --trace=cuda,nvtx --cuda-memory-usage=true --force-overwrite=true --sample=cpu --wait=all ./cudart 1
+Collecting data...
+Rendering a 1200x800 image with 10 samples per pixel in 8x8 blocks.
+Output mode: 1
+took P3
+1200 800
+255
+2.47688 seconds.
+Generating '/tmp/nsys-report-b8bd.qdstrm'
+[1/7] [========================100%] report1.nsys-rep
+[2/7] [========================100%] report1.sqlite
+[3/7] Executing 'nvtx_sum' stats report
+SKIPPED: /content/DD2360-RayTracing/report1.sqlite does not contain NV Tools Extension (NVTX) data.
+[4/7] Executing 'cuda_api_sum' stats report
+
+ Time (%)  Total Time (ns)  Num Calls    Avg (ns)       Med (ns)      Min (ns)      Max (ns)       StdDev (ns)             Name         
+ --------  ---------------  ---------  -------------  -------------  -----------  -------------  ---------------  ----------------------
+     93.8    2,520,884,979          5  504,176,995.8      661,791.0        5,694  2,476,865,017  1,102,924,152.9  cudaDeviceSynchronize 
+      4.3      116,073,545          1  116,073,545.0  116,073,545.0  116,073,545    116,073,545              0.0  cudaMallocManaged     
+      1.1       28,269,337          1   28,269,337.0   28,269,337.0   28,269,337     28,269,337              0.0  cudaDeviceReset       
+      0.7       19,205,344          6    3,200,890.7      472,171.5        5,174     17,159,820      6,852,523.5  cudaFree              
+      0.1        2,500,518          5      500,103.6      109,340.0       47,291      2,089,497        890,104.7  cudaLaunchKernel      
+      0.0          313,255          5       62,651.0       10,447.0        3,584        180,281         80,695.4  cudaMalloc            
+      0.0            7,229          1        7,229.0        7,229.0        7,229          7,229              0.0  cuCtxSynchronize      
+      0.0              915          1          915.0          915.0          915            915              0.0  cuModuleGetLoadingMode
+
+[5/7] Executing 'cuda_gpu_kern_sum' stats report
+
+ Time (%)  Total Time (ns)  Instances     Avg (ns)         Med (ns)        Min (ns)       Max (ns)     StdDev (ns)                                       Name                                     
+ --------  ---------------  ---------  ---------------  ---------------  -------------  -------------  -----------  ------------------------------------------------------------------------------
+     97.6    2,476,846,602          1  2,476,846,602.0  2,476,846,602.0  2,476,846,602  2,476,846,602          0.0  render(vec3 *, int, int, int, camera **, hitable **, curandStateXORWOW *)     
+      1.7       43,329,914          1     43,329,914.0     43,329,914.0     43,329,914     43,329,914          0.0  create_world(hitable **, hitable **, camera **, int, int, curandStateXORWOW *)
+      0.7       17,129,045          1     17,129,045.0     17,129,045.0     17,129,045     17,129,045          0.0  free_world(hitable **, hitable **, camera **)                                 
+      0.0          659,702          1        659,702.0        659,702.0        659,702        659,702          0.0  render_init(int, int, curandStateXORWOW *)                                    
+      0.0            3,680          1          3,680.0          3,680.0          3,680          3,680          0.0  rand_init(curandStateXORWOW *)                                                
+
+[6/7] Executing 'cuda_gpu_mem_time_sum' stats report
+
+ Time (%)  Total Time (ns)  Count  Avg (ns)  Med (ns)  Min (ns)  Max (ns)  StdDev (ns)               Operation              
+ --------  ---------------  -----  --------  --------  --------  --------  -----------  ------------------------------------
+    100.0        1,000,625     96  10,423.2   1,888.0     1,504    80,318     19,177.0  [CUDA memcpy Unified Device-to-Host]
+
+[7/7] Executing 'cuda_gpu_mem_size_sum' stats report
+
+ Total (MB)  Count  Avg (MB)  Med (MB)  Min (MB)  Max (MB)  StdDev (MB)               Operation              
+ ----------  -----  --------  --------  --------  --------  -----------  ------------------------------------
+     11.522     96     0.120     0.008     0.004     1.044        0.254  [CUDA memcpy Unified Device-to-Host]
+
+Generated:
+    /content/DD2360-RayTracing/report1.nsys-rep
+    /content/DD2360-RayTracing/report1.sqlite
+camera.h	main.cu						  out.ppm	    report1.sqlite
+cudart		Makefile					  ray.h		    sphere.h
+cudart.o	material.h					  raytracing.ipynb  vec3.h
+hitable.h	nsight-systems-2024.5.1_2024.5.1.113-1_amd64.deb  README.md
+hitable_list.h	out						  report1.nsys-rep
+
