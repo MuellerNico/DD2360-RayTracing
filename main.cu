@@ -219,6 +219,7 @@ int main(int argc, char **argv) {
 	        const int ib = static_cast<int>(255.99 * fb[pixel_index].b());
             if (output_mode == 0) {
                 outfile << ir << " " << ig << " " << ib << "\n";
+                std::cout << ir << " " << ig << " " << ib << "\n";
             }
             else if (output_mode == 2) {
                 // ToDo: implement GUI coupling (Chris)
@@ -226,7 +227,6 @@ int main(int argc, char **argv) {
         }
     }
     outfile.close();
-    std::cout << "Image saved as output.ppm\n";
 
     // clean up
     checkCudaErrors(cudaDeviceSynchronize());
