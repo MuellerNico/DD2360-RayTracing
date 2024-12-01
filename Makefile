@@ -3,7 +3,7 @@ HOST_COMPILER  = g++
 NVCC           = $(CUDA_PATH)/bin/nvcc -ccbin $(HOST_COMPILER)
 
 # Debug flags including line info for profiling
-NVCC_DBG       = -lineinfo
+NVCC_DBG       = -lineinfo -g -G -Xcompiler -rdynamic -src-in-ptx
 
 NVCCFLAGS      = $(NVCC_DBG) -m64
 GENCODE_FLAGS  = -gencode arch=compute_75,code=sm_75 # T4 GPU (Google Colab)
@@ -25,9 +25,16 @@ out.jpg: out.ppm
 	rm -f out.jpg
 	ppmtojpeg out.ppm > out.jpg
 
-# Profile with source line information
 profile: cudart
-	nsys profile --stats=true --backtrace=dwarf --trace=cuda,nvtx ./cudart 1
+    nsys profile \
+        --stats=true \
+        --backtrace=dwarf \
+        --trace=cuda,nvtx \
+        --cuda-memory-usage=true \  # Track memory allocations
+        --force-overwrite=true \    # Overwrite existing reports
+        --sample=cpu \              # CPU sampling
+        --wait=all \                # Wait for all processes
+        ./cudart 1
 
 clean:
 	rm -f cudart cudart.o out.ppm out.jpg *.nsys-rep *.sqlite
