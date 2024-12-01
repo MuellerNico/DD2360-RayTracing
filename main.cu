@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <time.h>
 #include <float.h>
 #include <curand_kernel.h>
@@ -208,20 +209,24 @@ int main(int argc, char **argv) {
     std::cerr << "took " << timer_seconds << " seconds.\n";
 
     // Output FB as Image
-    std::cout << "P3\n" << nx << " " << ny << "\n255\n";
-    for (int j = ny-1; j >= 0; j--) {
+    std::ofstream outfile("output.ppm");
+    outfile << "P3\n" << nx << " " << ny << "\n255\n";
+    for (int j = ny - 1; j >= 0; j--) {
         for (int i = 0; i < nx; i++) {
-            size_t pixel_index = j*nx + i;
-            int ir = int(255.99*fb[pixel_index].r());
-            int ig = int(255.99*fb[pixel_index].g());
-            int ib = int(255.99*fb[pixel_index].b());
+            size_t pixel_index = j * nx + i;
+            int ir = static_cast<int>(255.99 * fb[pixel_index].r());
+            int ig = static_cast<int>(255.99 * fb[pixel_index].g());
+            int ib = static_cast<int>(255.99 * fb[pixel_index].b());
             if (output_mode == 0) {
-                std::cout << ir << " " << ig << " " << ib << "\n";
-            } else if (output_mode == 2) {
+                outfile << ir << " " << ig << " " << ib << "\n";
+            }
+            else if (output_mode == 2) {
                 // ToDo: implement GUI coupling (Chris)
             }
         }
     }
+    outfile.close();
+    std::cout << "Image saved as output.ppm\n";
 
     // clean up
     checkCudaErrors(cudaDeviceSynchronize());
