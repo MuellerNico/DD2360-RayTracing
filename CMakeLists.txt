@@ -7,11 +7,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 14)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-# Specify CUDA Architectures (different per GPU)
+# Specify CUDA Architectures (adjust according to your GPU)
 set(CMAKE_CUDA_ARCHITECTURES 75)
 
 # Find Packages
 find_package(CUDAToolkit REQUIRED)
+find_package(OpenGL REQUIRED)
+find_package(glfw3 3.3 REQUIRED)
+find_package(GLEW REQUIRED)
 
 # Source Files
 set(SOURCES
@@ -36,10 +39,18 @@ add_executable(RayTracing ${SOURCES} ${HEADERS})
 target_include_directories(RayTracing PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CUDAToolkit_INCLUDE_DIRS}
+    ${OPENGL_INCLUDE_DIR}
+    ${GLEW_INCLUDE_DIRS}  # Include GLEW headers
 )
 
-# Link CUDA Libraries
-target_link_libraries(RayTracing PRIVATE CUDA::cudart CUDA::curand)
+# Link Libraries
+target_link_libraries(RayTracing PRIVATE
+    CUDA::cudart
+    CUDA::curand
+    OpenGL::GL
+    glfw
+    ${GLEW_LIBRARIES}
+)
 
 # Set CUDA Compilation Properties
 set_target_properties(RayTracing PROPERTIES
