@@ -11,6 +11,9 @@
 #include "material.h"
 #include <string>
 
+#include <GL/glew.h>
+#include <GLFW/glfw3.h>
+
 // limited version of checkCudaErrors from helper_cuda.h in CUDA examples
 #define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
 
@@ -166,6 +169,33 @@ int main(int argc, char **argv) {
 	constexpr int num_pixels = nx*ny;
 	constexpr size_t fb_size = num_pixels*sizeof(vec3);
 
+    // Initialize GLFW
+    if (!glfwInit()) {
+        std::cerr << "Error: GLFW initialization failed.\n";
+        return -1;
+    }
+
+    // Create a GLFW window
+    GLFWwindow* window = glfwCreateWindow(nx, ny, "CUDA Ray Tracer", nullptr, nullptr);
+    if (!window) {
+        std::cerr << "Error: Window creation failed.\n";
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
+
+    // Initialize GLEW (necessary to get OpenGL extensions)
+    glewExperimental = GL_TRUE;
+    GLenum glew_status = glewInit();
+    // Ignore GL_INVALID_ENUM error caused by glewInit()
+    glGetError();
+    if (glew_status != GLEW_OK) {
+        std::cerr << "Error: GLEW initialization failed.\n";
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return -1;
+    }
+
     // allocate FB
     vec3 *fb;
     checkCudaErrors(cudaMallocManaged(reinterpret_cast<void**>(&fb), fb_size));
@@ -245,6 +275,10 @@ int main(int argc, char **argv) {
     checkCudaErrors(cudaFree(d_rand_state));
     checkCudaErrors(cudaFree(d_rand_state2));
     checkCudaErrors(cudaFree(fb));
+
+    // Terminate GLFW
+    glfwDestroyWindow(window);
+    glfwTerminate();
 
     cudaDeviceReset();
 }
