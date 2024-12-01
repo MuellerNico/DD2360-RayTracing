@@ -157,7 +157,7 @@ int main(int argc, char **argv) {
     std::cerr << "Rendering a " << nx << "x" << ny << " image with " << ns << " samples per pixel ";
     std::cerr << "in " << tx << "x" << ty << " blocks.\n";
 
-    int output_mode = 0; // 0 = to stdout (default), 1 = disabled, 2 = to window (ToDo)
+    int output_mode = 0; // 0 = to stdout (default), 1 = disabled, 2 = to window (ToDo), 3 = to file
     if (argc > 1) {
         output_mode = std::stoi(argv[1]);
     }
@@ -209,8 +209,13 @@ int main(int argc, char **argv) {
     std::cerr << "took " << timer_seconds << " seconds.\n";
 
     // Output FB as Image
+    if (output_mode == 0) 
+		std::cout << "P3\n" << nx << " " << ny << "\n255\n";
+
     std::ofstream outfile("output.ppm");
-    outfile << "P3\n" << nx << " " << ny << "\n255\n";
+    if (output_mode == 3)
+        outfile << "P3\n" << nx << " " << ny << "\n255\n";
+
     for (int j = ny - 1; j >= 0; j--) {
         for (int i = 0; i < nx; i++) {
 	        const size_t pixel_index = j * nx + i;
@@ -218,15 +223,17 @@ int main(int argc, char **argv) {
 	        const int ig = static_cast<int>(255.99 * fb[pixel_index].g());
 	        const int ib = static_cast<int>(255.99 * fb[pixel_index].b());
             if (output_mode == 0) {
-                outfile << ir << " " << ig << " " << ib << "\n";
+                std::cout << ir << " " << ig << " " << ib << "\n";
             }
             else if (output_mode == 2) {
                 // ToDo: implement GUI coupling (Chris)
             }
+            else if (output_mode == 3) {
+                outfile << ir << " " << ig << " " << ib << "\n";
+            }
         }
     }
-    outfile.close();
-    std::cout << "Image saved as output.ppm\n";
+    if (output_mode == 3) outfile.close();
 
     // clean up
     checkCudaErrors(cudaDeviceSynchronize());
