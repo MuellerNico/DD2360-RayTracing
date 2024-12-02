@@ -346,12 +346,20 @@ int main(int argc, char** argv) {
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());
 
+	clock_t start, stop;
+	start = clock();
 	// Render our buffer
 	dim3 blocks((nx + tx - 1) / tx, (ny + ty - 1) / ty);
 	dim3 threads(tx, ty);
 	render_init << <blocks, threads >> > (nx, ny, d_rand_state);
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());
+	render << <blocks, threads >> > (fb, nx, ny, ns, d_camera, d_world, d_rand_state);
+	checkCudaErrors(cudaGetLastError());
+	checkCudaErrors(cudaDeviceSynchronize());
+	stop = clock();
+	const double timer_seconds = static_cast<double>(stop - start) / CLOCKS_PER_SEC;
+	std::cerr << "took " << timer_seconds << " seconds.\n";
 
 	// Output methods
 	switch (output_mode)
