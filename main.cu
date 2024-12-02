@@ -12,8 +12,10 @@
 #include <string>
 #include <vector>
 
+#ifdef USE_OPENGL
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
+#endif
 
 // limited version of checkCudaErrors from helper_cuda.h in CUDA examples
 #define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
@@ -176,6 +178,7 @@ __global__ void free_world(hitable** d_list, hitable** d_world, camera** d_camer
 	delete* d_camera;
 }
 
+#ifdef USE_OPENGL
 int render_in_window(const int nx, const int ny, dim3 blocks, dim3 threads, vec3* fb, camera** d_camera, hitable** d_world, curandState* d_rand_state)
 {
 	const int num_pixels = nx * ny;
@@ -273,6 +276,7 @@ int render_in_window(const int nx, const int ny, dim3 blocks, dim3 threads, vec3
 	glfwDestroyWindow(window);
 	glfwTerminate();
 }
+#endif
 
 void output_to_stream(std::ostream& ostream, const int nx, const int ny, const vec3* fb)
 {
@@ -370,9 +374,11 @@ int main(int argc, char** argv) {
 	case 1:
 		// do nothing
 		break;
+#ifdef USE_OPENGL
 	case 2:
 		render_in_window(nx, ny, blocks, threads, fb, d_camera, d_world, d_rand_state);
 		break;
+#endif
 	case 3:
 		output_to_file(nx, ny, fb);
 	default:
