@@ -7,7 +7,7 @@
       "project": "CMakeLists.txt",
       "projectTarget": "RayTracing.exe",
       "name": "RayTracing.exe",
-      "args": [ "3" ]
+      "args": [ "2" ]
     }
   ]
 }
