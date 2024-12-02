@@ -10,7 +10,7 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 # Specify CUDA Architectures (adjust according to your GPU)
 set(CMAKE_CUDA_ARCHITECTURES 75)
 
-# Add option to enable or disable OpenGL
+# Option to enable or disable OpenGL
 option(USE_OPENGL "Enable OpenGL support" ON)
 
 # Find Packages
@@ -76,8 +76,3 @@ set_target_properties(RayTracing PROPERTIES
     # Ensure the linker uses the correct language
     LINKER_LANGUAGE CUDA
 )
-
-# Handle Windows-specific flags
-if(MSVC)
-    # ... existing Windows-specific code ...
-endif()
