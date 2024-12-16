@@ -11,6 +11,7 @@
 #include "material.h"
 #include <string>
 #include <vector>
+#include "precision_types.h"
 
 #ifdef USE_OPENGL
 #include <GL/glew.h>
@@ -52,7 +53,7 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
 		}
 		else {
 			const vec3 unit_direction = unit_vector(cur_ray.direction());
-			const float t = 0.5f * (unit_direction.y() + 1.0f);
+			const real_t t = real_t(0.5f) * (unit_direction.y() + (real_t)1.0f);
 			const vec3 c = (1.0f - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0);
 			return cur_attenuation * c;
 		}
@@ -86,13 +87,13 @@ __global__ void render(vec3* fb, int max_x, int max_y, int ns, camera** cam, hit
 	curandState local_rand_state = rand_state[pixel_index];
 	vec3 col(0, 0, 0);
 	for (int s = 0; s < ns; s++) {
-		float u = float(i + curand_uniform(&local_rand_state)) / float(max_x);
-		float v = float(j + curand_uniform(&local_rand_state)) / float(max_y);
+		real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
+		real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
 		ray r = (*cam)->get_ray(u, v, &local_rand_state);
 		col += color(r, world, &local_rand_state);
 	}
 	rand_state[pixel_index] = local_rand_state;
-	col /= float(ns);
+	col /= real_t(ns);
 	col[0] = sqrt(col[0]);
 	col[1] = sqrt(col[1]);
 	col[2] = sqrt(col[2]);
@@ -108,8 +109,8 @@ __global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_s
 	vec3 col(0, 0, 0);
 
 	// Render one sample per pixel per call
-	float u = float(i + curand_uniform(&local_rand_state)) / float(max_x);
-	float v = float(j + curand_uniform(&local_rand_state)) / float(max_y);
+	real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
+	real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
 	ray r = (*cam)->get_ray(u, v, &local_rand_state);
 	col = color(r, world, &local_rand_state);
 
@@ -134,7 +135,7 @@ __global__ void create_world(hitable** d_list, hitable** d_world, camera** d_cam
 		int i = 1;
 		for (int a = -11; a < 11; a++) {
 			for (int b = -11; b < 11; b++) {
-				const float choose_mat = RND;
+				const real_t choose_mat = RND;
 				const vec3 center(a + RND, 0.2, b + RND);
 				if (choose_mat < 0.8f) {
 					d_list[i++] = new sphere(center, 0.2,
@@ -157,13 +158,13 @@ __global__ void create_world(hitable** d_list, hitable** d_world, camera** d_cam
 
 		const vec3 lookfrom(13, 2, 3);
 		const vec3 lookat(0, 0, 0);
-		constexpr float dist_to_focus = 10.0; (lookfrom - lookat).length();
-		constexpr float aperture = 0.1;
+		constexpr real_t dist_to_focus = 10.0; (lookfrom - lookat).length();
+		constexpr real_t aperture = 0.1;
 		*d_camera = new camera(lookfrom,
 			lookat,
 			vec3(0, 1, 0),
 			30.0,
-			float(nx) / float(ny),
+			real_t(nx) / real_t(ny),
 			aperture,
 			dist_to_focus);
 	}
@@ -238,9 +239,9 @@ int render_in_window(const int nx, const int ny, dim3 blocks, dim3 threads, vec3
 
 		// Copy data to OpenGL texture
 		// Apply gamma correction and averaging
-		std::vector<float> pixels(num_pixels * 3);
+		std::vector<real_t> pixels(num_pixels * 3);
 		for (int i = 0; i < num_pixels; ++i) {
-			vec3 col = fb[i] / float(current_sample);
+			vec3 col = fb[i] / real_t(current_sample);
 			col = vec3(sqrt(col[0]), sqrt(col[1]), sqrt(col[2])); // Gamma correction
 			pixels[i * 3 + 0] = col.r();
 			pixels[i * 3 + 1] = col.g();

@@ -82,6 +82,10 @@
         __device__ __forceinline__ static real_t sqrt(const real_t& x) { 
             return real_t(hsqrt(x.val)); 
         }
+
+        __device__ __forceinline__ static real_t rsqrt(const real_t& x) { 
+            return real_t(hrsqrt(x.val)); // 1/sqrt(x)
+        }
         
     };
 
