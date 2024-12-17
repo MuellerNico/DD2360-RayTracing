@@ -25,9 +25,13 @@ public:
         // real_t half_height = tan(theta/2.0f);
         real_t arg = theta/real_t(2.0f);
 #ifdef __CUDA_ARCH__
-        real_t half_height = hsin(arg.val) / hcos(arg.val); // no tan function in nvidia fp16 math
-#else
+    #ifdef USE_FP16
+        real_t half_height = real_t(hsin(arg.val) / hcos(arg.val));
+    #else
         real_t half_height = tan(arg);
+    #endif
+#else
+    real_t half_height = tan(arg);
 #endif
         real_t half_width = aspect * half_height;
         origin = lookfrom;
