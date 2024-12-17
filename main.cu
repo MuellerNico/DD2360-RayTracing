@@ -137,11 +137,11 @@ __global__ void create_world(hitable** d_list, hitable** d_world, camera** d_cam
 			for (int b = -11; b < 11; b++) {
 				const real_t choose_mat = RND;
 				const vec3 center(a + RND, 0.2, b + RND);
-				if (choose_mat < 0.8f) {
+				if (choose_mat < real_t(0.8f)) {
 					d_list[i++] = new sphere(center, 0.2,
 						new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
 				}
-				else if (choose_mat < 0.95f) {
+				else if (choose_mat < real_t(0.95f)) {
 					d_list[i++] = new sphere(center, 0.2,
 						new metal(vec3(0.5f * (1.0f + RND), 0.5f * (1.0f + RND), 0.5f * (1.0f + RND)), 0.5f * RND));
 				}

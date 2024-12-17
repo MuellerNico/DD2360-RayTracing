@@ -17,9 +17,9 @@ struct real_t
     __half val;
 
     // Constructors
-    __host__ __device__ __forceinline__ real_t() : val(__float2half(0.0f)) {}
-    __host__ __device__ __forceinline__ real_t(float f) : val(__float2half(f)) {}
-    __host__ __device__ __forceinline__ real_t(const __half &h) : val(h) {}
+    constexpr __host__ __device__ __forceinline__ real_t() : val(__float2half(0.0f)) {}
+    constexpr __host__ __device__ __forceinline__ real_t(float f) : val(__float2half(f)) {}
+    constexpr __host__ __device__ __forceinline__ real_t(const __half &h) : val(h) {}
 
     // Conversion
     __host__ __device__ __forceinline__ operator float() const { return __half2float(val); }
