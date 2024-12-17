@@ -2,6 +2,7 @@
 #define PRECISION_TYPES_H
 
 #include <cuda_fp16.h>
+#include <fstream>
 
 // comment for float32
 #define USE_FP16
@@ -156,8 +157,27 @@ struct real_t
         return real_t(1.0f / sqrtf(__half2float(x.val)));
 #endif
     }
-};
 
+    __host__ __device__ __forceinline__ std::ostream &operator<<(std::ostream &os, const real_t &x)
+    {
+#ifdef __CUDA_ARCH__
+        os << __half2float(x.val);
+#else
+        os << x.val;
+#endif
+        return os;
+    }
+
+    __host__ __device__ __forceinline__ std::istream &operator>>(std::istream &is, real_t &x)
+    {
+#ifdef __CUDA_ARCH__
+        is >> __half2float(x.val);
+#else
+        is >> x.val;
+#endif
+        return is;
+    }
+};
 
 // FP32
 #else
