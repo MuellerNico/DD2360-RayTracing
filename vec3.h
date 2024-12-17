@@ -52,7 +52,11 @@ inline std::ostream& operator<<(std::ostream &os, const vec3 &t) {
 }
 
 __host__ __device__ inline void vec3::make_unit_vector() {
+#ifdef USE_FP16
     real_t k = real_t::rsqrt(e[0]*e[0] + e[1]*e[1] + e[2]*e[2]);
+#else
+    real_t k = 1.0 / sqrt(e[0]*e[0] + e[1]*e[1] + e[2]*e[2]);
+#endif
     e[0] *= k; e[1] *= k; e[2] *= k;
 }
 

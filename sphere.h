@@ -20,8 +20,12 @@ __device__ bool sphere::hit(const ray& r, real_t t_min, real_t t_max, hit_record
     real_t b = dot(oc, r.direction());
     real_t c = dot(oc, oc) - radius*radius;
     real_t discriminant = b*b - a*c;
-    if (discriminant > 0) {
+    if (discriminant > real_t(0)) {
+#ifdef USE_FP16
         real_t temp = (-b - real_t::sqrt(discriminant))/a;
+#else
+        real_t temp = (-b - sqrt(discriminant))/a;
+#endif
         if (temp < t_max && temp > t_min) {
             rec.t = temp;
             rec.p = r.point_at_parameter(rec.t);

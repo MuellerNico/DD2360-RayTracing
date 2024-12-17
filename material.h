@@ -11,7 +11,7 @@ struct hit_record;
 __device__ real_t schlick(real_t cosine, real_t ref_idx) {
     real_t r0 = real_t(1.0f-ref_idx) / real_t(1.0f+ref_idx);
     r0 = r0*r0;
-    return real_t(r0 + real_t(1.0f-r0)*pow((1.0f - cosine),5.0f)); // TODO: pow computed in 32bit for now
+    return real_t(r0 + real_t(1.0f-r0)*real_t(pow((1.0f - cosine),5.0f))); // TODO: pow computed in 32bit for now
 }
 
 __device__ bool refract(const vec3& v, const vec3& n, real_t ni_over_nt, vec3& refracted) {
@@ -19,7 +19,11 @@ __device__ bool refract(const vec3& v, const vec3& n, real_t ni_over_nt, vec3& r
     real_t dt = dot(uv, n);
     real_t discriminant = real_t(1.0f) - ni_over_nt*ni_over_nt*((real_t)1.0f-dt*dt);
     if (discriminant > real_t(0)) {
+#ifdef USE_FP16
         refracted = ni_over_nt*(uv - n*dt) - n*real_t::sqrt(discriminant);
+#else
+        refracted = ni_over_nt*(uv - n*dt) - n*sqrt(discriminant);
+#endif
         return true;
     }
     else

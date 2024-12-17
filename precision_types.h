@@ -19,7 +19,8 @@ struct real_t
     // Constructors
     __host__ __device__ __forceinline__ real_t() : val(__float2half(0.0f)) {}
     __host__ __device__ __forceinline__ real_t(float f) : val(__float2half(f)) {}
-    __host__ __device__ __forceinline__ real_t(int i) : val(__float2half(float(i))) {}  // Add int constructor
+    __host__ __device__ __forceinline__ real_t(double f) : val(__float2half(f)) {}
+    __host__ __device__ __forceinline__ real_t(int i) : val(__float2half(float(i))) {}
     __host__ __device__ __forceinline__ real_t(const __half& h) : val(h) {}
 
     // Conversion
