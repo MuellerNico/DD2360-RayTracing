@@ -158,8 +158,8 @@ __global__ void create_world(hitable** d_list, hitable** d_world, camera** d_cam
 
 		const vec3 lookfrom(13, 2, 3);
 		const vec3 lookat(0, 0, 0);
-		constexpr real_t dist_to_focus = 10.0; (lookfrom - lookat).length();
-		constexpr real_t aperture = 0.1;
+		const real_t dist_to_focus = 10.0; (lookfrom - lookat).length();
+		const real_t aperture = 0.1;
 		*d_camera = new camera(lookfrom,
 			lookat,
 			vec3(0, 1, 0),
@@ -306,11 +306,11 @@ void output_to_file(const int nx, const int ny, const vec3* fb)
 }
 
 int main(int argc, char** argv) {
-	constexpr int nx = 1200;
-	constexpr int ny = 800;
-	constexpr int ns = 10;
-	constexpr int tx = 8;
-	constexpr int ty = 8;
+	const int nx = 1200;
+	const int ny = 800;
+	const int ns = 10;
+	const int tx = 8;
+	const int ty = 8;
 
 	std::cerr << "Rendering a " << nx << "x" << ny << " image with " << ns << " samples per pixel ";
 	std::cerr << "in " << tx << "x" << ty << " blocks.\n";
@@ -321,8 +321,8 @@ int main(int argc, char** argv) {
 	}
 	std::cerr << "Output mode: " << output_mode << "\n";
 
-	constexpr int num_pixels = nx * ny;
-	constexpr size_t fb_size = num_pixels * sizeof(vec3);
+	const int num_pixels = nx * ny;
+	const size_t fb_size = num_pixels * sizeof(vec3);
 
 	// allocate FB
 	vec3* fb;
@@ -341,7 +341,7 @@ int main(int argc, char** argv) {
 
 	// make our world of hitables & the camera
 	hitable** d_list;
-	constexpr int num_hitables = 22 * 22 + 1 + 3;
+	const int num_hitables = 22 * 22 + 1 + 3;
 	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_list), num_hitables * sizeof(hitable*)));
 	hitable** d_world;
 	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_world), sizeof(hitable*)));

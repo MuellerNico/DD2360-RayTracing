@@ -17,9 +17,10 @@ struct real_t
     __half val;
 
     // Constructors
-    constexpr __host__ __device__ __forceinline__ real_t() : val(__float2half(0.0f)) {}
-    constexpr __host__ __device__ __forceinline__ real_t(float f) : val(__float2half(f)) {}
-    constexpr __host__ __device__ __forceinline__ real_t(const __half &h) : val(h) {}
+    __host__ __device__ __forceinline__ real_t() : val(__float2half(0.0f)) {}
+    __host__ __device__ __forceinline__ real_t(float f) : val(__float2half(f)) {}
+    __host__ __device__ __forceinline__ real_t(int i) : val(__float2half(float(i))) {}  // Add int constructor
+    __host__ __device__ __forceinline__ real_t(const __half& h) : val(h) {}
 
     // Conversion
     __host__ __device__ __forceinline__ operator float() const { return __half2float(val); }
@@ -157,27 +158,19 @@ struct real_t
         return real_t(1.0f / sqrtf(__half2float(x.val)));
 #endif
     }
-
-    __host__ __device__ __forceinline__ std::ostream &operator<<(std::ostream &os, const real_t &x)
-    {
-#ifdef __CUDA_ARCH__
-        os << __half2float(x.val);
-#else
-        os << x.val;
-#endif
-        return os;
-    }
-
-    __host__ __device__ __forceinline__ std::istream &operator>>(std::istream &is, real_t &x)
-    {
-#ifdef __CUDA_ARCH__
-        is >> __half2float(x.val);
-#else
-        is >> x.val;
-#endif
-        return is;
-    }
 };
+
+__host__ __device__ __forceinline__ std::ostream& operator<<(std::ostream& os, const real_t& x) {
+    os << __half2float(x.val);
+    return os;
+}
+
+__host__ __device__ __forceinline__ std::istream& operator>>(std::istream& is, real_t& x) {
+    float temp;
+    is >> temp;
+    x = real_t(temp);
+    return is;
+}
 
 // FP32
 #else
