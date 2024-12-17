@@ -2,12 +2,13 @@
 #define HITABLEH
 
 #include "ray.h"
+#include "precision_types.h"
 
 class material;
 
 struct hit_record
 {
-    float t;
+    real_t t;
     vec3 p;
     vec3 normal;
     material *mat_ptr;
@@ -15,7 +16,7 @@ struct hit_record
 
 class hitable  {
     public:
-        __device__ virtual bool hit(const ray& r, float t_min, float t_max, hit_record& rec) const = 0;
+        __device__ virtual bool hit(const ray& r, real_t t_min, real_t t_max, hit_record& rec) const = 0;
 };
 
 #endif
