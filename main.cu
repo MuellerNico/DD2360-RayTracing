@@ -18,17 +18,19 @@
 #include <GLFW/glfw3.h>
 #endif
 
+#include "acceleration_structure.h"
+
 // limited version of checkCudaErrors from helper_cuda.h in CUDA examples
 #define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
 
 void check_cuda(cudaError_t result, char const* const func, const char* const file, int const line) {
-	if (result) {
-		std::cerr << "CUDA error = " << static_cast<unsigned int>(result) << " at " <<
-			file << ":" << line << " '" << func << "' \n";
-		// Make sure we call CUDA Device Reset before exiting
-		cudaDeviceReset();
-		exit(99);
-	}
+    if (result) {
+        std::cerr << "CUDA error = " << static_cast<unsigned int>(result) << " at " <<
+            file << ":" << line << " '" << func << "' \n";
+        // Make sure we call CUDA Device Reset before exiting
+        cudaDeviceReset();
+        exit(99);
+    }
 }
 
 // Matching the C++ code would recurse enough into color() calls that
@@ -295,44 +297,44 @@ void output_to_stream(std::ostream& ostream, const int nx, const int ny, const v
 
 void output_to_console(const int nx, const int ny, const vec3* fb)
 {
-	output_to_stream(std::cout, nx, ny, fb);
+    output_to_stream(std::cout, nx, ny, fb);
 }
 
 void output_to_file(const int nx, const int ny, const vec3* fb)
 {
-	std::ofstream outfile("output.ppm");
-	output_to_stream(outfile, nx, ny, fb);
-	outfile.close();
+    std::ofstream outfile("output.ppm");
+    output_to_stream(outfile, nx, ny, fb);
+    outfile.close();
 }
 
 int main(int argc, char** argv) {
-	const int nx = 1200;
-	const int ny = 800;
-	const int ns = 10;
-	const int tx = 8;
-	const int ty = 8;
+    const int nx = 1200;
+    const int ny = 800;
+    const int ns = 10;
+    const int tx = 8;
+    const int ty = 8;
 
-	std::cerr << "Rendering a " << nx << "x" << ny << " image with " << ns << " samples per pixel ";
-	std::cerr << "in " << tx << "x" << ty << " blocks.\n";
+    std::cerr << "Rendering a " << nx << "x" << ny << " image with " << ns << " samples per pixel ";
+    std::cerr << "in " << tx << "x" << ty << " blocks.\n";
 
 	int output_mode = 0; // 0 = to stdout (default), 1 = disabled, 2 = to window, 3 = to file
-	if (argc > 1) {
-		output_mode = std::stoi(argv[1]);
-	}
-	std::cerr << "Output mode: " << output_mode << "\n";
+    if (argc > 1) {
+        output_mode = std::stoi(argv[1]);
+    }
+    std::cerr << "Output mode: " << output_mode << "\n";
 
-	const int num_pixels = nx * ny;
-	const size_t fb_size = num_pixels * sizeof(vec3);
+    const int num_pixels = nx * ny;
+    const size_t fb_size = num_pixels * sizeof(vec3);
 
-	// allocate FB
-	vec3* fb;
-	checkCudaErrors(cudaMallocManaged(reinterpret_cast<void**>(&fb), fb_size));
+    // allocate FB
+    vec3* fb;
+    checkCudaErrors(cudaMallocManaged(reinterpret_cast<void**>(&fb), fb_size));
 
-	// allocate random state
-	curandState* d_rand_state;
-	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_rand_state), num_pixels * sizeof(curandState)));
-	curandState* d_rand_state2;
-	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_rand_state2), 1 * sizeof(curandState)));
+    // allocate random state
+    curandState* d_rand_state;
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_rand_state), num_pixels * sizeof(curandState)));
+    curandState* d_rand_state2;
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_rand_state2), 1 * sizeof(curandState)));
 
 	// we need that 2nd random state to be initialized for the world creation
 	rand_init << <1, 1 >> > (d_rand_state2);
@@ -341,15 +343,15 @@ int main(int argc, char** argv) {
 
 	// make our world of hitables & the camera
 	hitable** d_list;
-	const int num_hitables = 22 * 22 + 1 + 3;
-	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_list), num_hitables * sizeof(hitable*)));
-	hitable** d_world;
-	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_world), sizeof(hitable*)));
-	camera** d_camera;
-	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_camera), sizeof(camera*)));
-	create_world << <1, 1 >> > (d_list, d_world, d_camera, nx, ny, d_rand_state2);
-	checkCudaErrors(cudaGetLastError());
-	checkCudaErrors(cudaDeviceSynchronize());
+    const int num_hitables = 22 * 22 + 1 + 3;
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_list), num_hitables * sizeof(hitable*)));
+    hitable** d_world;
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_world), sizeof(hitable*)));
+    camera** d_camera;
+    checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_camera), sizeof(camera*)));
+    create_world << <1, 1 >> > (d_list, d_world, d_camera, nx, ny, d_rand_state2);
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaDeviceSynchronize());
 
 	clock_t start, stop;
 	start = clock();
@@ -366,37 +368,65 @@ int main(int argc, char** argv) {
 	const double timer_seconds = static_cast<double>(stop - start) / CLOCKS_PER_SEC;
 	std::cerr << "took " << timer_seconds << " seconds.\n";
 
-	// Output methods
-	switch (output_mode)
-	{
-	case 0:
-		output_to_console(nx, ny, fb);
-		break;
-	case 1:
-		// do nothing
-		break;
+    // Output methods
+    switch (output_mode)
+    {
+    case 0:
+        output_to_console(nx, ny, fb);
+        break;
+    case 1:
+        // do nothing
+        break;
 #ifdef USE_OPENGL
-	case 2:
-		render_in_window(nx, ny, blocks, threads, fb, d_camera, d_world, d_rand_state);
-		break;
+    case 2:
+        render_in_window(nx, ny, blocks, threads, fb, d_camera, d_world, d_rand_state);
+        break;
 #endif
-	case 3:
-		output_to_file(nx, ny, fb);
-	default:
+    case 3:
+        output_to_file(nx, ny, fb);
+        break;
+    default:
 		// do nothing
-		break;
-	}
+        break;
+    }
 
-	// clean up
-	checkCudaErrors(cudaDeviceSynchronize());
-	free_world << <1, 1 >> > (d_list, d_world, d_camera);
-	checkCudaErrors(cudaGetLastError());
-	checkCudaErrors(cudaFree(d_camera));
-	checkCudaErrors(cudaFree(d_world));
-	checkCudaErrors(cudaFree(d_list));
-	checkCudaErrors(cudaFree(d_rand_state));
-	checkCudaErrors(cudaFree(d_rand_state2));
-	checkCudaErrors(cudaFree(fb));
+    // CPU Octree Test - small example (unrelated to GPU spheres)
+    {
+        std::cout << "\n[CPU Octree Test] Building a small test octree...\n";
+        std::vector<sphere> testSpheres;
+        testSpheres.emplace_back(vec3{ 0.f, 0.f, 0.f }, 1.f, nullptr);       // center (0,0,0), radius=1
+        testSpheres.emplace_back(vec3{ 2.f, 2.f, 2.f }, 1.f, nullptr);       // center (2,2,2)
+        testSpheres.emplace_back(vec3{ -3.f,-1.f, 0.f }, 0.5f, nullptr);     // center (-3,-1,0)
 
-	cudaDeviceReset();
+        Octree cpuOct(4, 8); // e.g. max 4 spheres per node, max depth 8
+        cpuOct.build(testSpheres);
+
+        // A test ray
+        float rayOrig[3] = { 5.f, 5.f, 5.f };
+        float rayDir[3] = { -1.f, -1.f, -1.f };
+
+        float tHit;
+        bool hit = cpuOct.intersect(rayOrig, rayDir, tHit);
+
+        if (hit) {
+            std::cout << "[CPU Octree Test] Ray hit at t=" << tHit << "\n";
+        }
+        else {
+            std::cout << "[CPU Octree Test] Ray missed all spheres.\n";
+        }
+    }
+    // -----------------------------------------------------------------------
+
+    // Clean up GPU
+    checkCudaErrors(cudaDeviceSynchronize());
+    free_world << <1, 1 >> > (d_list, d_world, d_camera);
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaFree(d_camera));
+    checkCudaErrors(cudaFree(d_world));
+    checkCudaErrors(cudaFree(d_list));
+    checkCudaErrors(cudaFree(d_rand_state));
+    checkCudaErrors(cudaFree(d_rand_state2));
+    checkCudaErrors(cudaFree(fb));
+
+    cudaDeviceReset();
 }

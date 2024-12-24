@@ -39,7 +39,7 @@ set(HEADERS
 )
 
 # Create Executable Target
-add_executable(RayTracing ${SOURCES} ${HEADERS})
+add_executable(RayTracing ${SOURCES} ${HEADERS} "acceleration_structure.h")
 
 # Include Directories
 target_include_directories(RayTracing PRIVATE
