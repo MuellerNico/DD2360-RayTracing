@@ -3,21 +3,21 @@
 #include <time.h>
 #include <float.h>
 #include <curand_kernel.h>
-#include "vec3.h"
-#include "ray.h"
-#include "sphere.h"
-#include "hitable_list.h"
-#include "camera.h"
-#include "material.h"
 #include <string>
 #include <vector>
-#include "precision_types.h"
 
 #ifdef USE_OPENGL
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #endif
 
+#include "vec3.h"
+#include "ray.h"
+#include "sphere.h"
+#include "hitable_list.h"
+#include "camera.h"
+#include "material.h"
+#include "precision_types.h"
 #include "acceleration_structure.h"
 
 // limited version of checkCudaErrors from helper_cuda.h in CUDA examples
@@ -33,266 +33,336 @@ void check_cuda(cudaError_t result, char const* const func, const char* const fi
     }
 }
 
+// GPU array for spheres bounding data
+SphereData* d_sphereData = nullptr;
+
+// Copy from device pointers to a device array of SphereData
+__global__ void copySphereDataKernel(hitable** d_list, SphereData* outSpheres, int count)
+{
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    if (i >= count) return;
+
+    // each d_list[i] is a (sphere*) on device
+    sphere* sp = (sphere*)d_list[i];
+    outSpheres[i].cx = sp->center.x();
+    outSpheres[i].cy = sp->center.y();
+    outSpheres[i].cz = sp->center.z();
+    outSpheres[i].radius = (float)sp->radius; // convert from real_t
+}
+
+// Same color logic as before, but we do an explicit sphere intersection
+// with the GPU Octree instead of calling world->hit
+__device__ vec3 color_octree(const ray& r,
+    const GpuOctree& oct,
+    const SphereData* gpuSpheres,
+    int numSpheres,
+    curandState* local_rand_state)
+{
+    // find first hit
+    float3 o = make_float3(r.origin().x(), r.origin().y(), r.origin().z());
+    float3 d = make_float3(r.direction().x(), r.direction().y(), r.direction().z());
+
+    float tHit = octreeIntersectRay(o, d, oct, gpuSpheres, numSpheres);
+    if (tHit < 0.f) {
+        // background
+        vec3 unit_direction = unit_vector(r.direction());
+        real_t t = real_t(0.5f) * (unit_direction.y() + real_t(1.0f));
+        vec3 c = (1.0f - t) * vec3(1.0f, 1.0f, 1.0f) + t * vec3(0.5f, 0.7f, 1.0f);
+        return c;
+    }
+    // shade as a simple normal or something:
+    // we can figure out the hit point
+    vec3 hitPoint = r.origin() + real_t(tHit) * r.direction();
+    return vec3(1.0, 0.0, 0.0); // red to see hits (debug)
+}
+
+__global__ void render_octree(vec3* fb, int max_x, int max_y,
+    int ns, camera** cam,
+    GpuOctree oct, SphereData* gpuSpheres,
+    int numSpheres,
+    curandState* rand_state)
+{
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    if ((i >= max_x) || (j >= max_y)) return;
+    int pixel_index = j * max_x + i;
+
+    curandState local_rand_state = rand_state[pixel_index];
+    vec3 col(0, 0, 0);
+    for (int s = 0; s < ns; s++) {
+        real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
+        real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
+        ray r = (*cam)->get_ray(u, v, &local_rand_state);
+        col += color_octree(r, oct, gpuSpheres, numSpheres, &local_rand_state);
+    }
+    rand_state[pixel_index] = local_rand_state;
+    col /= real_t(ns);
+    col[0] = sqrt(col[0]);
+    col[1] = sqrt(col[1]);
+    col[2] = sqrt(col[2]);
+    fb[pixel_index] = col;
+}
+
 // Matching the C++ code would recurse enough into color() calls that
 // it was blowing up the stack, so we have to turn this into a
 // limited-depth loop instead.  Later code in the book limits to a max
 // depth of 50, so we adapt this a few chapters early on the GPU.
 __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_state) {
-	ray cur_ray = r;
-	vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
-	for (int i = 0; i < 50; i++) {
-		hit_record rec;
-		if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
-			ray scattered;
-			vec3 attenuation;
-			if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
-				cur_attenuation *= attenuation;
-				cur_ray = scattered;
-			}
-			else {
-				return vec3(0.0, 0.0, 0.0);
-			}
-		}
-		else {
-			const vec3 unit_direction = unit_vector(cur_ray.direction());
-			const real_t t = real_t(0.5f) * (unit_direction.y() + (real_t)1.0f);
-			const vec3 c = (1.0f - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0);
-			return cur_attenuation * c;
-		}
-	}
-	return vec3(0.0, 0.0, 0.0); // exceeded recursion
+    ray cur_ray = r;
+    vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
+    for (int i = 0; i < 50; i++) {
+        hit_record rec;
+        if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
+            ray scattered;
+            vec3 attenuation;
+            if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
+                cur_attenuation *= attenuation;
+                cur_ray = scattered;
+            }
+            else {
+                return vec3(0.0, 0.0, 0.0);
+            }
+        }
+        else {
+            const vec3 unit_direction = unit_vector(cur_ray.direction());
+            const real_t t = real_t(0.5f) * (unit_direction.y() + (real_t)1.0f);
+            const vec3 c = (1.0f - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0);
+            return cur_attenuation * c;
+        }
+    }
+    return vec3(0.0, 0.0, 0.0); // exceeded recursion
 }
 
 __global__ void rand_init(curandState* rand_state) {
-	if (threadIdx.x == 0 && blockIdx.x == 0) {
-		curand_init(1984, 0, 0, rand_state);
-	}
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        curand_init(1984, 0, 0, rand_state);
+    }
 }
 
 __global__ void render_init(int max_x, int max_y, curandState* rand_state) {
-	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	int j = threadIdx.y + blockIdx.y * blockDim.y;
-	if ((i >= max_x) || (j >= max_y)) return;
-	int pixel_index = j * max_x + i;
-	// Original: Each thread gets same seed, a different sequence number, no offset
-	// curand_init(1984, pixel_index, 0, &rand_state[pixel_index]);
-	// BUGFIX, see Issue#2: Each thread gets different seed, same sequence for
-	// performance improvement of about 2x!
-	curand_init(1984 + pixel_index, 0, 0, &rand_state[pixel_index]);
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    if ((i >= max_x) || (j >= max_y)) return;
+    int pixel_index = j * max_x + i;
+    // Original: Each thread gets same seed, a different sequence number, no offset
+    // curand_init(1984, pixel_index, 0, &rand_state[pixel_index]);
+    // BUGFIX, see Issue#2: Each thread gets different seed, same sequence for
+    // performance improvement of about 2x!
+    curand_init(1984 + pixel_index, 0, 0, &rand_state[pixel_index]);
 }
 
 __global__ void render(vec3* fb, int max_x, int max_y, int ns, camera** cam, hitable** world, curandState* rand_state) {
-	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	int j = threadIdx.y + blockIdx.y * blockDim.y;
-	if ((i >= max_x) || (j >= max_y)) return;
-	int pixel_index = j * max_x + i;
-	curandState local_rand_state = rand_state[pixel_index];
-	vec3 col(0, 0, 0);
-	for (int s = 0; s < ns; s++) {
-		real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
-		real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
-		ray r = (*cam)->get_ray(u, v, &local_rand_state);
-		col += color(r, world, &local_rand_state);
-	}
-	rand_state[pixel_index] = local_rand_state;
-	col /= real_t(ns);
-	col[0] = sqrt(col[0]);
-	col[1] = sqrt(col[1]);
-	col[2] = sqrt(col[2]);
-	fb[pixel_index] = col;
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    if ((i >= max_x) || (j >= max_y)) return;
+    int pixel_index = j * max_x + i;
+    curandState local_rand_state = rand_state[pixel_index];
+    vec3 col(0, 0, 0);
+    for (int s = 0; s < ns; s++) {
+        real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
+        real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
+        ray r = (*cam)->get_ray(u, v, &local_rand_state);
+        col += color(r, world, &local_rand_state);
+    }
+    rand_state[pixel_index] = local_rand_state;
+    col /= real_t(ns);
+    col[0] = sqrt(col[0]);
+    col[1] = sqrt(col[1]);
+    col[2] = sqrt(col[2]);
+    fb[pixel_index] = col;
 }
 
 __global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_sample, camera** cam, hitable** world, curandState* rand_state) {
-	int i = threadIdx.x + blockIdx.x * blockDim.x;
-	int j = threadIdx.y + blockIdx.y * blockDim.y;
-	if ((i >= max_x) || (j >= max_y)) return;
-	int pixel_index = j * max_x + i;
-	curandState local_rand_state = rand_state[pixel_index];
-	vec3 col(0, 0, 0);
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    if ((i >= max_x) || (j >= max_y)) return;
+    int pixel_index = j * max_x + i;
+    curandState local_rand_state = rand_state[pixel_index];
+    vec3 col(0, 0, 0);
 
-	// Render one sample per pixel per call
-	real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
-	real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
-	ray r = (*cam)->get_ray(u, v, &local_rand_state);
-	col = color(r, world, &local_rand_state);
+    // Render one sample per pixel per call
+    real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
+    real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
+    ray r = (*cam)->get_ray(u, v, &local_rand_state);
+    col = color(r, world, &local_rand_state);
 
-	rand_state[pixel_index] = local_rand_state;
+    rand_state[pixel_index] = local_rand_state;
 
-	// Accumulate color
-	if (current_sample == 1) {
-		fb[pixel_index] = col;
-	}
-	else {
-		fb[pixel_index] += col;
-	}
+    // Accumulate color
+    if (current_sample == 1) {
+        fb[pixel_index] = col;
+    }
+    else {
+        fb[pixel_index] += col;
+    }
 }
 
 #define RND (curand_uniform(&local_rand_state))
 
 __global__ void create_world(hitable** d_list, hitable** d_world, camera** d_camera, int nx, int ny, curandState* rand_state) {
-	if (threadIdx.x == 0 && blockIdx.x == 0) {
-		curandState local_rand_state = *rand_state;
-		d_list[0] = new sphere(vec3(0, -1000.0, -1), 1000,
-			new lambertian(vec3(0.5, 0.5, 0.5)));
-		int i = 1;
-		for (int a = -11; a < 11; a++) {
-			for (int b = -11; b < 11; b++) {
-				const real_t choose_mat = RND;
-				const vec3 center(a + RND, 0.2, b + RND);
-				if (choose_mat < real_t(0.8f)) {
-					d_list[i++] = new sphere(center, 0.2,
-						new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
-				}
-				else if (choose_mat < real_t(0.95f)) {
-					d_list[i++] = new sphere(center, 0.2,
-						new metal(vec3(0.5f * (1.0f + RND), 0.5f * (1.0f + RND), 0.5f * (1.0f + RND)), 0.5f * RND));
-				}
-				else {
-					d_list[i++] = new sphere(center, 0.2, new dielectric(1.5));
-				}
-			}
-		}
-		d_list[i++] = new sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
-		d_list[i++] = new sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
-		d_list[i++] = new sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
-		*rand_state = local_rand_state;
-		*d_world = new hitable_list(d_list, 22 * 22 + 1 + 3);
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        curandState local_rand_state = *rand_state;
+        d_list[0] = new sphere(vec3(0, -1000.0, -1), 1000,
+            new lambertian(vec3(0.5, 0.5, 0.5)));
+        int i = 1;
+        for (int a = -11; a < 11; a++) {
+            for (int b = -11; b < 11; b++) {
+                const real_t choose_mat = RND;
+                const vec3 center(a + RND, 0.2, b + RND);
+                if (choose_mat < real_t(0.8f)) {
+                    d_list[i++] = new sphere(center, 0.2,
+                        new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
+                }
+                else if (choose_mat < real_t(0.95f)) {
+                    d_list[i++] = new sphere(center, 0.2,
+                        new metal(vec3(0.5f * (1.0f + RND), 0.5f * (1.0f + RND), 0.5f * (1.0f + RND)), 0.5f * RND));
+                }
+                else {
+                    d_list[i++] = new sphere(center, 0.2, new dielectric(1.5));
+                }
+            }
+        }
+        d_list[i++] = new sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
+        d_list[i++] = new sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
+        d_list[i++] = new sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
+        *rand_state = local_rand_state;
+        *d_world = new hitable_list(d_list, 22 * 22 + 1 + 3);
 
-		const vec3 lookfrom(13, 2, 3);
-		const vec3 lookat(0, 0, 0);
-		const real_t dist_to_focus = 10.0; (lookfrom - lookat).length();
-		const real_t aperture = 0.1;
-		*d_camera = new camera(lookfrom,
-			lookat,
-			vec3(0, 1, 0),
-			30.0,
-			real_t(nx) / real_t(ny),
-			aperture,
-			dist_to_focus);
-	}
+        const vec3 lookfrom(13, 2, 3);
+        const vec3 lookat(0, 0, 0);
+        const real_t dist_to_focus = 10.0; (lookfrom - lookat).length();
+        const real_t aperture = 0.1;
+        *d_camera = new camera(lookfrom,
+            lookat,
+            vec3(0, 1, 0),
+            30.0,
+            real_t(nx) / real_t(ny),
+            aperture,
+            dist_to_focus);
+    }
 }
 
 __global__ void free_world(hitable** d_list, hitable** d_world, camera** d_camera) {
-	for (int i = 0; i < 22 * 22 + 1 + 3; i++) {
-		delete ((sphere*)d_list[i])->mat_ptr;
-		delete d_list[i];
-	}
-	delete* d_world;
-	delete* d_camera;
+    for (int i = 0; i < 22 * 22 + 1 + 3; i++) {
+        delete ((sphere*)d_list[i])->mat_ptr;
+        delete d_list[i];
+    }
+    delete* d_world;
+    delete* d_camera;
 }
 
 #ifdef USE_OPENGL
 int render_in_window(const int nx, const int ny, dim3 blocks, dim3 threads, vec3* fb, camera** d_camera, hitable** d_world, curandState* d_rand_state)
 {
-	const int num_pixels = nx * ny;
+    const int num_pixels = nx * ny;
 
-	// Initialize GLFW
-	if (!glfwInit()) {
-		std::cerr << "Error: GLFW initialization failed.\n";
-		return -1;
-	}
+    // Initialize GLFW
+    if (!glfwInit()) {
+        std::cerr << "Error: GLFW initialization failed.\n";
+        return -1;
+    }
 
-	// Create a GLFW window
-	GLFWwindow* window = glfwCreateWindow(nx, ny, "CUDA Ray Tracer", nullptr, nullptr);
-	if (!window) {
-		std::cerr << "Error: Window creation failed.\n";
-		glfwTerminate();
-		return -1;
-	}
-	glfwMakeContextCurrent(window);
+    // Create a GLFW window
+    GLFWwindow* window = glfwCreateWindow(nx, ny, "CUDA Ray Tracer", nullptr, nullptr);
+    if (!window) {
+        std::cerr << "Error: Window creation failed.\n";
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
 
-	// Initialize GLEW (necessary to get OpenGL extensions)
-	glewExperimental = GL_TRUE;
-	const GLenum glew_status = glewInit();
-	// Ignore GL_INVALID_ENUM error caused by glewInit()
-	glGetError();
-	if (glew_status != GLEW_OK) {
-		std::cerr << "Error: GLEW initialization failed.\n";
-		glfwDestroyWindow(window);
-		glfwTerminate();
-		return -1;
-	}
+    // Initialize GLEW (necessary to get OpenGL extensions)
+    glewExperimental = GL_TRUE;
+    const GLenum glew_status = glewInit();
+    // Ignore GL_INVALID_ENUM error caused by glewInit()
+    glGetError();
+    if (glew_status != GLEW_OK) {
+        std::cerr << "Error: GLEW initialization failed.\n";
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return -1;
+    }
 
-	// Create OpenGL texture
-	GLuint tex;
-	glGenTextures(1, &tex);
-	glBindTexture(GL_TEXTURE_2D, tex);
+    // Create OpenGL texture
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
 
-	// Allocate texture storage
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, nx, ny, 0, GL_RGB, GL_FLOAT, NULL);
+    // Allocate texture storage
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, nx, ny, 0, GL_RGB, GL_FLOAT, NULL);
 
-	// Set texture parameters
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    // Set texture parameters
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-	int current_sample = 0;
-	const int max_samples = 4000; // Set the number of samples per pixel
+    int current_sample = 0;
+    const int max_samples = 4000; // Set the number of samples per pixel
 
-	// Main render loop
-	while (!glfwWindowShouldClose(window) && current_sample < max_samples) {
-		glfwPollEvents();
+    // Main render loop
+    while (!glfwWindowShouldClose(window) && current_sample < max_samples) {
+        glfwPollEvents();
 
-		current_sample++;
+        current_sample++;
 
-		// Launch render kernel
-		render_progressive << <blocks, threads >> > (fb, nx, ny, current_sample, d_camera, d_world, d_rand_state);
-		checkCudaErrors(cudaGetLastError());
-		checkCudaErrors(cudaDeviceSynchronize());
+        // Launch render kernel
+        render_progressive << <blocks, threads >> > (fb, nx, ny, current_sample, d_camera, d_world, d_rand_state);
+        checkCudaErrors(cudaGetLastError());
+        checkCudaErrors(cudaDeviceSynchronize());
 
-		// Copy data to OpenGL texture
-		// Apply gamma correction and averaging
-		std::vector<real_t> pixels(num_pixels * 3);
-		for (int i = 0; i < num_pixels; ++i) {
-			vec3 col = fb[i] / real_t(current_sample);
-			col = vec3(sqrt(col[0]), sqrt(col[1]), sqrt(col[2])); // Gamma correction
-			pixels[i * 3 + 0] = col.r();
-			pixels[i * 3 + 1] = col.g();
-			pixels[i * 3 + 2] = col.b();
-		}
+        // Copy data to OpenGL texture
+        // Apply gamma correction and averaging
+        std::vector<real_t> pixels(num_pixels * 3);
+        for (int i = 0; i < num_pixels; ++i) {
+            vec3 col = fb[i] / real_t(current_sample);
+            col = vec3(sqrt(col[0]), sqrt(col[1]), sqrt(col[2])); // Gamma correction
+            pixels[i * 3 + 0] = col.r();
+            pixels[i * 3 + 1] = col.g();
+            pixels[i * 3 + 2] = col.b();
+        }
 
-		// Update texture
-		glBindTexture(GL_TEXTURE_2D, tex);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, nx, ny, GL_RGB, GL_FLOAT, pixels.data());
+        // Update texture
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, nx, ny, GL_RGB, GL_FLOAT, pixels.data());
 
-		// Render textured quad
-		glClear(GL_COLOR_BUFFER_BIT);
+        // Render textured quad
+        glClear(GL_COLOR_BUFFER_BIT);
 
-		glEnable(GL_TEXTURE_2D);
-		glBegin(GL_QUADS);
-		{
-			glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
-			glTexCoord2f(1.0f, 0.0f); glVertex2f(1.0f, -1.0f);
-			glTexCoord2f(1.0f, 1.0f); glVertex2f(1.0f, 1.0f);
-			glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.0f, 1.0f);
-		}
-		glEnd();
-		glDisable(GL_TEXTURE_2D);
+        glEnable(GL_TEXTURE_2D);
+        glBegin(GL_QUADS);
+        {
+            glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
+            glTexCoord2f(1.0f, 0.0f); glVertex2f(1.0f, -1.0f);
+            glTexCoord2f(1.0f, 1.0f); glVertex2f(1.0f, 1.0f);
+            glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.0f, 1.0f);
+        }
+        glEnd();
+        glDisable(GL_TEXTURE_2D);
 
-		glfwSwapBuffers(window);
+        glfwSwapBuffers(window);
 
-		// Optional: Display progress
-		std::cout << "Sample " << current_sample << "/" << max_samples << "\r";
-		std::cout.flush();
-	}
+        // Optional: Display progress
+        std::cout << "Sample " << current_sample << "/" << max_samples << "\r";
+        std::cout.flush();
+    }
 
-	// Terminate GLFW
-	glfwDestroyWindow(window);
-	glfwTerminate();
+    // Terminate GLFW
+    glfwDestroyWindow(window);
+    glfwTerminate();
 }
 #endif
 
 void output_to_stream(std::ostream& ostream, const int nx, const int ny, const vec3* fb)
 {
-	ostream << "P3\n" << nx << " " << ny << "\n255\n";
-	for (int j = ny - 1; j >= 0; j--) {
-		for (int i = 0; i < nx; i++) {
-			const size_t pixel_index = j * nx + i;
-			const int ir = static_cast<int>(255.99 * fb[pixel_index].r());
-			const int ig = static_cast<int>(255.99 * fb[pixel_index].g());
-			const int ib = static_cast<int>(255.99 * fb[pixel_index].b());
-			ostream << ir << " " << ig << " " << ib << "\n";
-		}
-	}
+    ostream << "P3\n" << nx << " " << ny << "\n255\n";
+    for (int j = ny - 1; j >= 0; j--) {
+        for (int i = 0; i < nx; i++) {
+            const size_t pixel_index = j * nx + i;
+            const int ir = static_cast<int>(255.99 * fb[pixel_index].r());
+            const int ig = static_cast<int>(255.99 * fb[pixel_index].g());
+            const int ib = static_cast<int>(255.99 * fb[pixel_index].b());
+            ostream << ir << " " << ig << " " << ib << "\n";
+        }
+    }
 }
 
 void output_to_console(const int nx, const int ny, const vec3* fb)
@@ -317,7 +387,7 @@ int main(int argc, char** argv) {
     std::cerr << "Rendering a " << nx << "x" << ny << " image with " << ns << " samples per pixel ";
     std::cerr << "in " << tx << "x" << ty << " blocks.\n";
 
-	int output_mode = 0; // 0 = to stdout (default), 1 = disabled, 2 = to window, 3 = to file
+    int output_mode = 0; // 0 = to stdout (default), 1 = disabled, 2 = to window, 3 = to file
     if (argc > 1) {
         output_mode = std::stoi(argv[1]);
     }
@@ -336,13 +406,13 @@ int main(int argc, char** argv) {
     curandState* d_rand_state2;
     checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_rand_state2), 1 * sizeof(curandState)));
 
-	// we need that 2nd random state to be initialized for the world creation
-	rand_init << <1, 1 >> > (d_rand_state2);
-	checkCudaErrors(cudaGetLastError());
-	checkCudaErrors(cudaDeviceSynchronize());
+    // we need that 2nd random state to be initialized for the world creation
+    rand_init << <1, 1 >> > (d_rand_state2);
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaDeviceSynchronize());
 
-	// make our world of hitables & the camera
-	hitable** d_list;
+    // make our world of hitables & the camera
+    hitable** d_list;
     const int num_hitables = 22 * 22 + 1 + 3;
     checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_list), num_hitables * sizeof(hitable*)));
     hitable** d_world;
@@ -353,22 +423,60 @@ int main(int argc, char** argv) {
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
 
-	clock_t start, stop;
-	start = clock();
-	// Render our buffer
-	dim3 blocks((nx + tx - 1) / tx, (ny + ty - 1) / ty);
-	dim3 threads(tx, ty);
-	render_init << <blocks, threads >> > (nx, ny, d_rand_state);
-	checkCudaErrors(cudaGetLastError());
-	checkCudaErrors(cudaDeviceSynchronize());
-	render << <blocks, threads >> > (fb, nx, ny, ns, d_camera, d_world, d_rand_state);
-	checkCudaErrors(cudaGetLastError());
-	checkCudaErrors(cudaDeviceSynchronize());
-	stop = clock();
-	const double timer_seconds = static_cast<double>(stop - start) / CLOCKS_PER_SEC;
-	std::cerr << "took " << timer_seconds << " seconds.\n";
+    // 1) Copy sphere geometry from GPU "d_list" to a GPU array "d_sphereData"
+    checkCudaErrors(cudaMalloc((void**)&d_sphereData, num_hitables * sizeof(SphereData)));
+    {
+        dim3 cpyBlocks((num_hitables + 127) / 128);
+        dim3 cpyThreads(128);
+        copySphereDataKernel << <cpyBlocks, cpyThreads >> > (d_list, d_sphereData, num_hitables);
+        checkCudaErrors(cudaDeviceSynchronize());
+    }
 
-    // Output methods
+    // 2) Copy that GPU array to CPU so we can build the octree
+    std::vector<SphereData> hostSpheres(num_hitables);
+    checkCudaErrors(cudaMemcpy(hostSpheres.data(), d_sphereData,
+        num_hitables * sizeof(SphereData),
+        cudaMemcpyDeviceToHost));
+
+    // 3) Convert to a std::vector<sphere> for CPU-based octree build
+    std::vector<sphere> cpuSpheres;
+    cpuSpheres.reserve(num_hitables);
+    for (int i = 0; i < num_hitables; i++) {
+        vec3 c(hostSpheres[i].cx, hostSpheres[i].cy, hostSpheres[i].cz);
+        float r = hostSpheres[i].radius;
+        cpuSpheres.emplace_back(c, r, nullptr); // no material needed for bounding
+    }
+
+    // 4) Build CPU Octree
+    Octree cpuOct(4, 8);
+    cpuOct.build(cpuSpheres);
+    cpuOct.flatten();
+
+    // 5) Upload the flattened octree to GPU
+    GpuOctree gpuOct;
+    uploadOctreeToGPU(cpuOct.flatNodes, cpuOct.flatIndices, gpuOct);
+
+    // 6) Render with octree-based intersection
+    //    (instead of using the old "render" that does world->hit)
+    dim3 blocks((nx + tx - 1) / tx, (ny + ty - 1) / ty);
+    dim3 threads(tx, ty);
+    render_init << <blocks, threads >> > (nx, ny, d_rand_state);
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaDeviceSynchronize());
+
+    clock_t start = clock();
+    render_octree << <blocks, threads >> > (fb, nx, ny, ns,
+        d_camera,
+        gpuOct,
+        d_sphereData,
+        num_hitables,
+        d_rand_state);
+    checkCudaErrors(cudaDeviceSynchronize());
+    clock_t stop = clock();
+    double timer_seconds = double(stop - start) / CLOCKS_PER_SEC;
+    std::cerr << "[Octree] Render took " << timer_seconds << " seconds.\n";
+
+    // Output
     switch (output_mode)
     {
     case 0:
@@ -386,36 +494,10 @@ int main(int argc, char** argv) {
         output_to_file(nx, ny, fb);
         break;
     default:
-		// do nothing
+        // do nothing
         break;
     }
 
-    // CPU Octree Test - small example (unrelated to GPU spheres)
-    {
-        std::cout << "\n[CPU Octree Test] Building a small test octree...\n";
-        std::vector<sphere> testSpheres;
-        testSpheres.emplace_back(vec3{ 0.f, 0.f, 0.f }, 1.f, nullptr);       // center (0,0,0), radius=1
-        testSpheres.emplace_back(vec3{ 2.f, 2.f, 2.f }, 1.f, nullptr);       // center (2,2,2)
-        testSpheres.emplace_back(vec3{ -3.f,-1.f, 0.f }, 0.5f, nullptr);     // center (-3,-1,0)
-
-        Octree cpuOct(4, 8); // e.g. max 4 spheres per node, max depth 8
-        cpuOct.build(testSpheres);
-
-        // A test ray
-        float rayOrig[3] = { 5.f, 5.f, 5.f };
-        float rayDir[3] = { -1.f, -1.f, -1.f };
-
-        float tHit;
-        bool hit = cpuOct.intersect(rayOrig, rayDir, tHit);
-
-        if (hit) {
-            std::cout << "[CPU Octree Test] Ray hit at t=" << tHit << "\n";
-        }
-        else {
-            std::cout << "[CPU Octree Test] Ray missed all spheres.\n";
-        }
-    }
-    // -----------------------------------------------------------------------
 
     // Clean up GPU
     checkCudaErrors(cudaDeviceSynchronize());
@@ -427,6 +509,8 @@ int main(int argc, char** argv) {
     checkCudaErrors(cudaFree(d_rand_state));
     checkCudaErrors(cudaFree(d_rand_state2));
     checkCudaErrors(cudaFree(fb));
+    checkCudaErrors(cudaFree(d_sphereData));
+    freeGpuOctree(gpuOct);
 
     cudaDeviceReset();
 }
