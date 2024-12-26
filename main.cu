@@ -12,11 +12,14 @@
 #include <string>
 #include <vector>
 #include "precision_types.h"
+#include "acceleration_structure.h"
 
 #ifdef USE_OPENGL
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #endif
+
+#define NUM_SPHERES (22 * 22 + 1 + 3)
 
 // limited version of checkCudaErrors from helper_cuda.h in CUDA examples
 #define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
@@ -127,10 +130,10 @@ __global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_s
 
 #define RND (curand_uniform(&local_rand_state))
 
-__global__ void create_world(hitable** d_list, hitable** d_world, camera** d_camera, int nx, int ny, curandState* rand_state) {
+__global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, camera** d_camera, int nx, int ny, curandState* rand_state) {
 	if (threadIdx.x == 0 && blockIdx.x == 0) {
 		curandState local_rand_state = *rand_state;
-		d_list[0] = new sphere(vec3(0, -1000.0, -1), 1000,
+		*d_list[0] = sphere(vec3(0, -1000.0, -1), 1000,
 			new lambertian(vec3(0.5, 0.5, 0.5)));
 		int i = 1;
 		for (int a = -11; a < 11; a++) {
@@ -138,23 +141,30 @@ __global__ void create_world(hitable** d_list, hitable** d_world, camera** d_cam
 				const real_t choose_mat = RND;
 				const vec3 center(a + RND, 0.2, b + RND);
 				if (choose_mat < real_t(0.8f)) {
-					d_list[i++] = new sphere(center, 0.2,
+					*d_list[i++] = sphere(center, 0.2,
 						new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
 				}
 				else if (choose_mat < real_t(0.95f)) {
-					d_list[i++] = new sphere(center, 0.2,
+					*d_list[i++] = sphere(center, 0.2,
 						new metal(vec3(0.5f * (1.0f + RND), 0.5f * (1.0f + RND), 0.5f * (1.0f + RND)), 0.5f * RND));
 				}
 				else {
-					d_list[i++] = new sphere(center, 0.2, new dielectric(1.5));
+					*d_list[i++] = sphere(center, 0.2, new dielectric(1.5));
 				}
 			}
 		}
-		d_list[i++] = new sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
-		d_list[i++] = new sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
-		d_list[i++] = new sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
+		*d_list[i++] = { vec3(0, 1, 0), 1.0, new dielectric(1.5) };
+		*d_list[i++] = sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
+		*d_list[i++] = sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
 		*rand_state = local_rand_state;
-		*d_world = new hitable_list(d_list, 22 * 22 + 1 + 3);
+		int num_hitables = 22 * 22 + 1 + 3;
+		hitable** d_hitable = new hitable*[num_hitables];	// convert to keep changes minimal
+		d_hitable[0] = &(*d_list[0]);
+		for(int i=1; i < num_hitables; i++)
+		{
+			d_hitable[i] = d_hitable[i - 1] + sizeof(sphere);
+		}
+		*d_world = new hitable_list(d_hitable, num_hitables );
 
 		const vec3 lookfrom(13, 2, 3);
 		const vec3 lookat(0, 0, 0);
@@ -170,11 +180,11 @@ __global__ void create_world(hitable** d_list, hitable** d_world, camera** d_cam
 	}
 }
 
-__global__ void free_world(hitable** d_list, hitable** d_world, camera** d_camera) {
-	for (int i = 0; i < 22 * 22 + 1 + 3; i++) {
-		delete ((sphere*)d_list[i])->mat_ptr;
-		delete d_list[i];
+__global__ void free_world(sphere(*d_list)[NUM_SPHERES], hitable** d_world, camera** d_camera) {
+	for (int i = 0; i < NUM_SPHERES; i++) {
+		delete (*d_list[i]).mat_ptr;
 	}
+	delete d_list;
 	delete* d_world;
 	delete* d_camera;
 }
@@ -340,9 +350,8 @@ int main(int argc, char** argv) {
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// make our world of hitables & the camera
-	hitable** d_list;
-	const int num_hitables = 22 * 22 + 1 + 3;
-	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_list), num_hitables * sizeof(hitable*)));
+	sphere (*d_list)[NUM_SPHERES];
+	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_list), NUM_SPHERES * sizeof(sphere)));
 	hitable** d_world;
 	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_world), sizeof(hitable*)));
 	camera** d_camera;
@@ -350,6 +359,14 @@ int main(int argc, char** argv) {
 	create_world << <1, 1 >> > (d_list, d_world, d_camera, nx, ny, d_rand_state2);
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());
+
+	// copy spheres to CPU to fill into octree
+	// first copy the addresses on the GPU
+	sphere* cpu_spheres = static_cast<sphere*>(malloc(sizeof(sphere) * NUM_SPHERES));
+	checkCudaErrors(cudaMemcpy(cpu_spheres, d_list, NUM_SPHERES * sizeof(sphere), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	sphere temp = cpu_spheres[2];	// TODO: why is only first element filled/copied?
 
 	clock_t start, stop;
 	start = clock();

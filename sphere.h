@@ -6,15 +6,15 @@
 
 class sphere: public hitable  {
     public:
-        __device__ sphere() {}
-        __device__ sphere(vec3 cen, real_t r, material *m) : center(cen), radius(r), mat_ptr(m)  {};
-        __device__ virtual bool hit(const ray& r, real_t tmin, real_t tmax, hit_record& rec) const;
+        __host__ __device__ sphere() {}
+        __host__ __device__ sphere(vec3 cen, real_t r, material *m) : center(cen), radius(r), mat_ptr(m)  {};
+        __host__ __device__ virtual bool hit(const ray& r, real_t tmin, real_t tmax, hit_record& rec) const;
         vec3 center;
         real_t radius;
         material *mat_ptr;
 };
 
-__device__ bool sphere::hit(const ray& r, real_t t_min, real_t t_max, hit_record& rec) const {
+__host__ __device__ bool sphere::hit(const ray& r, real_t t_min, real_t t_max, hit_record& rec) const {
     vec3 oc = r.origin() - center;
     real_t a = dot(r.direction(), r.direction());
     real_t b = dot(oc, r.direction());
