@@ -43,7 +43,7 @@ __global__ void copySphereDataKernel(hitable** d_list, SphereData* outSpheres, i
     if (i >= count) return;
 
     // each d_list[i] is a (sphere*) on device
-    sphere* sp = (sphere*)d_list[i];
+    sphere* sp = static_cast<sphere*>(d_list[i]);
     outSpheres[i].cx = sp->center.x();
     outSpheres[i].cy = sp->center.y();
     outSpheres[i].cz = sp->center.z();
@@ -51,34 +51,67 @@ __global__ void copySphereDataKernel(hitable** d_list, SphereData* outSpheres, i
 }
 
 // Same color logic as before, but we do an explicit sphere intersection
-// with the GPU Octree instead of calling world->hit
-__device__ vec3 color_octree(const ray& r,
+// but with the GPU Octree instead of calling world->hit
+__device__ vec3 color_octree(const ray& r_in,
     const GpuOctree& oct,
+    hitable** d_list,
     const SphereData* gpuSpheres,
     int numSpheres,
     curandState* local_rand_state)
 {
-    // find first hit
-    float3 o = make_float3(r.origin().x(), r.origin().y(), r.origin().z());
-    float3 d = make_float3(r.direction().x(), r.direction().y(), r.direction().z());
+    vec3 curAtten(1.f, 1.f, 1.f);
+    ray  curRay = r_in;
+    for (int bounce = 0; bounce < 50; bounce++) {
+        OctreeHit oh = octreeIntersectRay(make_float3(curRay.origin().x(),
+            curRay.origin().y(),
+            curRay.origin().z()),
+            make_float3(curRay.direction().x(),
+                curRay.direction().y(),
+                curRay.direction().z()),
+            oct,
+            gpuSpheres,
+            numSpheres,
+            0.001f,
+            FLT_MAX);
+        if (oh.sphereIdx < 0) {
+            // background
+            vec3 unit_direction = unit_vector(curRay.direction());
+            real_t t = static_cast<real_t>(0.5f) * (unit_direction.y() + static_cast<real_t>(1.0f));
+            vec3 c = (1.0f - t) * vec3(1.0f, 1.0f, 1.0f) + t * vec3(0.5f, 0.7f, 1.0f);
+            return curAtten * c;
+        }
 
-    float tHit = octreeIntersectRay(o, d, oct, gpuSpheres, numSpheres);
-    if (tHit < 0.f) {
-        // background
-        vec3 unit_direction = unit_vector(r.direction());
-        real_t t = real_t(0.5f) * (unit_direction.y() + real_t(1.0f));
-        vec3 c = (1.0f - t) * vec3(1.0f, 1.0f, 1.0f) + t * vec3(0.5f, 0.7f, 1.0f);
-        return c;
+        // We do an actual sphere->hit(...) to get the exact intersection info
+        sphere* sp = static_cast<sphere*>(d_list[oh.sphereIdx]);
+        hit_record rec;
+        // If for some reason the exact intersection fails, we treat as background
+        if (!sp->hit(curRay, 0.001f, FLT_MAX, rec)) {
+            // background
+            vec3 unit_direction = unit_vector(curRay.direction());
+            real_t t = static_cast<real_t>(0.5f) * (unit_direction.y() + static_cast<real_t>(1.0f));
+            vec3 c = (1.0f - t) * vec3(1.0f, 1.0f, 1.0f) + t * vec3(0.5f, 0.7f, 1.0f);
+            return curAtten * c;
+        }
+
+        // Scatter
+        ray scattered;
+        vec3 attenuation;
+        if (rec.mat_ptr && rec.mat_ptr->scatter(curRay, rec, attenuation, scattered, local_rand_state)) {
+            curAtten *= attenuation;
+            curRay = scattered;
+        }
+        else {
+            // absorbing
+            return vec3(0, 0, 0);
+        }
     }
-    // shade as a simple normal or something:
-    // we can figure out the hit point
-    vec3 hitPoint = r.origin() + real_t(tHit) * r.direction();
-    return vec3(1.0, 0.0, 0.0); // red to see hits (debug)
+    // Exceeded bounce limit
+    return vec3(0, 0, 0);
 }
 
 __global__ void render_octree(vec3* fb, int max_x, int max_y,
     int ns, camera** cam,
-    GpuOctree oct, SphereData* gpuSpheres,
+    GpuOctree oct, hitable** d_list, const SphereData* gpuSpheres,
     int numSpheres,
     curandState* rand_state)
 {
@@ -93,7 +126,7 @@ __global__ void render_octree(vec3* fb, int max_x, int max_y,
         real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
         real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
         ray r = (*cam)->get_ray(u, v, &local_rand_state);
-        col += color_octree(r, oct, gpuSpheres, numSpheres, &local_rand_state);
+        col += color_octree(r, oct, d_list, gpuSpheres, numSpheres, &local_rand_state);
     }
     rand_state[pixel_index] = local_rand_state;
     col /= real_t(ns);
@@ -101,6 +134,40 @@ __global__ void render_octree(vec3* fb, int max_x, int max_y,
     col[1] = sqrt(col[1]);
     col[2] = sqrt(col[2]);
     fb[pixel_index] = col;
+}
+
+__global__ void render_progressive_octree(vec3* fb, int max_x, int max_y,
+    int current_sample, camera** cam,
+    GpuOctree oct,
+    hitable** d_list, const SphereData* gpuSpheres,
+    int numSpheres,
+    curandState* rand_state)
+{
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    if (i >= max_x || j >= max_y) return;
+
+    int pixel_index = j * max_x + i;
+    curandState local_rand_state = rand_state[pixel_index];
+
+    // Generate a single sample
+    real_t u = static_cast<real_t>(i + curand_uniform(&local_rand_state)) / static_cast<real_t>(max_x);
+    real_t v = static_cast<real_t>(j + curand_uniform(&local_rand_state)) / static_cast<real_t>(max_y);
+    ray r = (*cam)->get_ray(u, v, &local_rand_state);
+
+    // Compute color with octree
+    vec3 col = color_octree(r, oct, d_list, gpuSpheres, numSpheres, &local_rand_state);
+
+    // Store back the RNG
+    rand_state[pixel_index] = local_rand_state;
+
+    // Accumulate color
+    if (current_sample == 1) {
+        fb[pixel_index] = col;
+    }
+    else {
+        fb[pixel_index] += col;
+    }
 }
 
 // Matching the C++ code would recurse enough into color() calls that
@@ -244,7 +311,7 @@ __global__ void create_world(hitable** d_list, hitable** d_world, camera** d_cam
 
 __global__ void free_world(hitable** d_list, hitable** d_world, camera** d_camera) {
     for (int i = 0; i < 22 * 22 + 1 + 3; i++) {
-        delete ((sphere*)d_list[i])->mat_ptr;
+        delete static_cast<sphere*>(d_list[i])->mat_ptr;
         delete d_list[i];
     }
     delete* d_world;
@@ -349,6 +416,111 @@ int render_in_window(const int nx, const int ny, dim3 blocks, dim3 threads, vec3
     glfwDestroyWindow(window);
     glfwTerminate();
 }
+
+int render_in_window_octree(const int nx, const int ny, dim3 blocks, dim3 threads, vec3* fb, camera** d_camera, hitable** d_list, curandState* d_rand_state, GpuOctree octree, int num_hitables)
+{
+    const int num_pixels = nx * ny;
+
+    // Initialize GLFW
+    if (!glfwInit()) {
+        std::cerr << "Error: GLFW initialization failed.\n";
+        return -1;
+    }
+
+    // Create a GLFW window
+    GLFWwindow* window = glfwCreateWindow(nx, ny, "CUDA Ray Tracer", nullptr, nullptr);
+    if (!window) {
+        std::cerr << "Error: Window creation failed.\n";
+        glfwTerminate();
+        return -1;
+    }
+    glfwMakeContextCurrent(window);
+
+    // Initialize GLEW (necessary to get OpenGL extensions)
+    glewExperimental = GL_TRUE;
+    const GLenum glew_status = glewInit();
+    // Ignore GL_INVALID_ENUM error caused by glewInit()
+    glGetError();
+    if (glew_status != GLEW_OK) {
+        std::cerr << "Error: GLEW initialization failed.\n";
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return -1;
+    }
+
+    // Create OpenGL texture
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    // Allocate texture storage
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, nx, ny, 0, GL_RGB, GL_FLOAT, NULL);
+
+    // Set texture parameters
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    int current_sample = 0;
+    const int max_samples = 4000; // Set the number of samples per pixel
+
+    // Main render loop
+    while (!glfwWindowShouldClose(window) && current_sample < max_samples) {
+        glfwPollEvents();
+
+        current_sample++;
+
+        // Launch render kernel
+        render_progressive_octree << <blocks, threads >> > (
+            fb, nx, ny, current_sample,
+            d_camera,
+            octree,
+            d_list,
+            d_sphereData,
+            num_hitables,
+            d_rand_state);
+        checkCudaErrors(cudaGetLastError());
+        checkCudaErrors(cudaDeviceSynchronize());
+
+        // Copy data to OpenGL texture
+        // Apply gamma correction and averaging
+        std::vector<real_t> pixels(num_pixels * 3);
+        for (int i = 0; i < num_pixels; ++i) {
+            vec3 col = fb[i] / real_t(current_sample);
+            col = vec3(sqrt(col[0]), sqrt(col[1]), sqrt(col[2])); // Gamma correction
+            pixels[i * 3 + 0] = col.r();
+            pixels[i * 3 + 1] = col.g();
+            pixels[i * 3 + 2] = col.b();
+        }
+
+        // Update texture
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, nx, ny, GL_RGB, GL_FLOAT, pixels.data());
+
+        // Render textured quad
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        glEnable(GL_TEXTURE_2D);
+        glBegin(GL_QUADS);
+        {
+            glTexCoord2f(0.0f, 0.0f); glVertex2f(-1.0f, -1.0f);
+            glTexCoord2f(1.0f, 0.0f); glVertex2f(1.0f, -1.0f);
+            glTexCoord2f(1.0f, 1.0f); glVertex2f(1.0f, 1.0f);
+            glTexCoord2f(0.0f, 1.0f); glVertex2f(-1.0f, 1.0f);
+        }
+        glEnd();
+        glDisable(GL_TEXTURE_2D);
+
+        glfwSwapBuffers(window);
+
+        // Optional: Display progress
+        std::cout << "Sample " << current_sample << "/" << max_samples << "\r";
+        std::cout.flush();
+    }
+
+    // Terminate GLFW
+    glfwDestroyWindow(window);
+    glfwTerminate();
+}
 #endif
 
 void output_to_stream(std::ostream& ostream, const int nx, const int ny, const vec3* fb)
@@ -380,7 +552,7 @@ void output_to_file(const int nx, const int ny, const vec3* fb)
 int main(int argc, char** argv) {
     const int nx = 1200;
     const int ny = 800;
-    const int ns = 10;
+    const int ns = 10; // #samples (if we do a single-pass)
     const int tx = 8;
     const int ty = 8;
 
@@ -423,7 +595,7 @@ int main(int argc, char** argv) {
     checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
 
-    // 1) Copy sphere geometry from GPU "d_list" to a GPU array "d_sphereData"
+    // Copy sphere geometry to d_sphereData
     checkCudaErrors(cudaMalloc((void**)&d_sphereData, num_hitables * sizeof(SphereData)));
     {
         dim3 cpyBlocks((num_hitables + 127) / 128);
@@ -431,14 +603,16 @@ int main(int argc, char** argv) {
         copySphereDataKernel << <cpyBlocks, cpyThreads >> > (d_list, d_sphereData, num_hitables);
         checkCudaErrors(cudaDeviceSynchronize());
     }
+    checkCudaErrors(cudaDeviceSynchronize());
 
-    // 2) Copy that GPU array to CPU so we can build the octree
+    // Copy that to CPU, build octree
     std::vector<SphereData> hostSpheres(num_hitables);
-    checkCudaErrors(cudaMemcpy(hostSpheres.data(), d_sphereData,
+    checkCudaErrors(cudaMemcpy(hostSpheres.data(),
+        d_sphereData,
         num_hitables * sizeof(SphereData),
         cudaMemcpyDeviceToHost));
 
-    // 3) Convert to a std::vector<sphere> for CPU-based octree build
+    // convert to spheres
     std::vector<sphere> cpuSpheres;
     cpuSpheres.reserve(num_hitables);
     for (int i = 0; i < num_hitables; i++) {
@@ -447,27 +621,26 @@ int main(int argc, char** argv) {
         cpuSpheres.emplace_back(c, r, nullptr); // no material needed for bounding
     }
 
-    // 4) Build CPU Octree
+    // Build cpu octree
     Octree cpuOct(4, 8);
     cpuOct.build(cpuSpheres);
-    cpuOct.flatten();
 
-    // 5) Upload the flattened octree to GPU
+    // Upload flat arrays to GPU
     GpuOctree gpuOct;
     uploadOctreeToGPU(cpuOct.flatNodes, cpuOct.flatIndices, gpuOct);
 
-    // 6) Render with octree-based intersection
-    //    (instead of using the old "render" that does world->hit)
+    // Single-pass rendering or progressive
     dim3 blocks((nx + tx - 1) / tx, (ny + ty - 1) / ty);
     dim3 threads(tx, ty);
     render_init << <blocks, threads >> > (nx, ny, d_rand_state);
-    checkCudaErrors(cudaGetLastError());
     checkCudaErrors(cudaDeviceSynchronize());
 
     clock_t start = clock();
-    render_octree << <blocks, threads >> > (fb, nx, ny, ns,
+    render_octree << <blocks, threads >> > (
+        fb, nx, ny, ns,
         d_camera,
         gpuOct,
+        d_list,
         d_sphereData,
         num_hitables,
         d_rand_state);
@@ -487,7 +660,8 @@ int main(int argc, char** argv) {
         break;
 #ifdef USE_OPENGL
     case 2:
-        render_in_window(nx, ny, blocks, threads, fb, d_camera, d_world, d_rand_state);
+        //render_in_window(nx, ny, blocks, threads, fb, d_camera, d_world, d_rand_state);
+        render_in_window_octree(nx, ny, blocks, threads, fb, d_camera, d_list, d_rand_state, gpuOct, num_hitables);
         break;
 #endif
     case 3:
