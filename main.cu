@@ -95,12 +95,14 @@ __global__ void render(vec3* fb, int max_x, int max_y, int ns, camera** cam, hit
 		ray r = (*cam)->get_ray(u, v, &local_rand_state);
 		col += color(r, world, &local_rand_state);
 	}
+	
 	rand_state[pixel_index] = local_rand_state;
 	col /= real_t(ns);
 	col[0] = sqrt(col[0]);
 	col[1] = sqrt(col[1]);
 	col[2] = sqrt(col[2]);
 	fb[pixel_index] = col;
+	
 }
 
 __global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_sample, camera** cam, hitable** world, curandState* rand_state) {
@@ -133,7 +135,7 @@ __global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_s
 __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, camera** d_camera, int nx, int ny, curandState* rand_state) {
 	if (threadIdx.x == 0 && blockIdx.x == 0) {
 		curandState local_rand_state = *rand_state;
-		*d_list[0] = sphere(vec3(0, -1000.0, -1), 1000,
+		(*d_list)[0] = sphere(vec3(0, -1000.0, -1), 1000,
 			new lambertian(vec3(0.5, 0.5, 0.5)));
 		int i = 1;
 		for (int a = -11; a < 11; a++) {
@@ -141,28 +143,28 @@ __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, c
 				const real_t choose_mat = RND;
 				const vec3 center(a + RND, 0.2, b + RND);
 				if (choose_mat < real_t(0.8f)) {
-					*d_list[i++] = sphere(center, 0.2,
+					(*d_list)[i++] = sphere(center, 0.2,
 						new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
 				}
 				else if (choose_mat < real_t(0.95f)) {
-					*d_list[i++] = sphere(center, 0.2,
+					(*d_list)[i++] = sphere(center, 0.2,
 						new metal(vec3(0.5f * (1.0f + RND), 0.5f * (1.0f + RND), 0.5f * (1.0f + RND)), 0.5f * RND));
 				}
 				else {
-					*d_list[i++] = sphere(center, 0.2, new dielectric(1.5));
+					(*d_list)[i++] = sphere(center, 0.2, new dielectric(1.5));
 				}
 			}
 		}
-		*d_list[i++] = { vec3(0, 1, 0), 1.0, new dielectric(1.5) };
-		*d_list[i++] = sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
-		*d_list[i++] = sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
+		(*d_list)[i++] = sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
+		(*d_list)[i++] = sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
+		(*d_list)[i++] = sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
 		*rand_state = local_rand_state;
 		int num_hitables = 22 * 22 + 1 + 3;
-		hitable** d_hitable = new hitable*[num_hitables];	// convert to keep changes minimal
-		d_hitable[0] = &(*d_list[0]);
-		for(int i=1; i < num_hitables; i++)
+		hitable** d_hitable = new hitable*[num_hitables];	// convert to array of pointers to keep changes minimal
+		d_hitable[0] = &((*d_list)[0]);
+		for(int i = 1; i < num_hitables; i++)
 		{
-			d_hitable[i] = d_hitable[i - 1] + sizeof(sphere);
+			d_hitable[i] = &((*d_list)[i]);
 		}
 		*d_world = new hitable_list(d_hitable, num_hitables );
 
