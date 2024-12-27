@@ -38,10 +38,19 @@ void check_cuda(cudaError_t result, char const* const func, const char* const fi
 // it was blowing up the stack, so we have to turn this into a
 // limited-depth loop instead.  Later code in the book limits to a max
 // depth of 50, so we adapt this a few chapters early on the GPU.
-__device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_state) {
+__device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_state, Octree* d_octree, sphere(*d_list)[NUM_SPHERES]) {
+	
 	ray cur_ray = r;
 	vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
 	for (int i = 0; i < 50; i++) {
+		printf("before hittree\n");
+		Octhit* octhit = hitTree(d_octree, r);
+
+		printf("Octree hit: %d\n", octhit->num_p_hits);
+
+		delete[] octhit->possible_hits;
+		delete octhit;
+
 		hit_record rec;
 		if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
 			ray scattered;
@@ -82,7 +91,7 @@ __global__ void render_init(int max_x, int max_y, curandState* rand_state) {
 	curand_init(1984 + pixel_index, 0, 0, &rand_state[pixel_index]);
 }
 
-__global__ void render(vec3* fb, int max_x, int max_y, int ns, camera** cam, hitable** world, curandState* rand_state) {
+__global__ void render(vec3* fb, int max_x, int max_y, int ns, camera** cam, hitable** world, curandState* rand_state, Octree* d_octree, sphere(*d_list)[NUM_SPHERES]) {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	int j = threadIdx.y + blockIdx.y * blockDim.y;
 	if ((i >= max_x) || (j >= max_y)) return;
@@ -93,7 +102,7 @@ __global__ void render(vec3* fb, int max_x, int max_y, int ns, camera** cam, hit
 		real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
 		real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
 		ray r = (*cam)->get_ray(u, v, &local_rand_state);
-		col += color(r, world, &local_rand_state);
+		col += color(r, world, &local_rand_state, d_octree, d_list);
 	}
 	
 	rand_state[pixel_index] = local_rand_state;
@@ -105,7 +114,7 @@ __global__ void render(vec3* fb, int max_x, int max_y, int ns, camera** cam, hit
 	
 }
 
-__global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_sample, camera** cam, hitable** world, curandState* rand_state) {
+__global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_sample, camera** cam, hitable** world, curandState* rand_state, Octree* d_octree, sphere(*d_list)[NUM_SPHERES]) {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	int j = threadIdx.y + blockIdx.y * blockDim.y;
 	if ((i >= max_x) || (j >= max_y)) return;
@@ -117,7 +126,7 @@ __global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_s
 	real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
 	real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
 	ray r = (*cam)->get_ray(u, v, &local_rand_state);
-	col = color(r, world, &local_rand_state);
+	col = color(r, world, &local_rand_state, d_octree, d_list);
 
 	rand_state[pixel_index] = local_rand_state;
 
@@ -192,7 +201,7 @@ __global__ void free_world(sphere(*d_list)[NUM_SPHERES], hitable** d_world, came
 }
 
 #ifdef USE_OPENGL
-int render_in_window(const int nx, const int ny, dim3 blocks, dim3 threads, vec3* fb, camera** d_camera, hitable** d_world, curandState* d_rand_state)
+int render_in_window(const int nx, const int ny, dim3 blocks, dim3 threads, vec3* fb, camera** d_camera, hitable** d_world, curandState* d_rand_state, Octree* d_octree, sphere(*d_list)[NUM_SPHERES])
 {
 	const int num_pixels = nx * ny;
 
@@ -245,7 +254,7 @@ int render_in_window(const int nx, const int ny, dim3 blocks, dim3 threads, vec3
 		current_sample++;
 
 		// Launch render kernel
-		render_progressive << <blocks, threads >> > (fb, nx, ny, current_sample, d_camera, d_world, d_rand_state);
+		render_progressive << <blocks, threads >> > (fb, nx, ny, current_sample, d_camera, d_world, d_rand_state, d_octree, d_list);
 		checkCudaErrors(cudaGetLastError());
 		checkCudaErrors(cudaDeviceSynchronize());
 
@@ -371,6 +380,13 @@ int main(int argc, char** argv) {
 	// build octree
 	Octree* octree = buildOctree(cpu_spheres, NUM_SPHERES);
 
+	// upload octree to gpu
+	Octree* d_octree;
+	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_octree),sizeof(Octree)));
+	checkCudaErrors(cudaMemcpy(d_octree, octree, sizeof(Octree), cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaGetLastError());
+	checkCudaErrors(cudaDeviceSynchronize());
+
 	clock_t start, stop;
 	start = clock();
 	// Render our buffer
@@ -379,7 +395,7 @@ int main(int argc, char** argv) {
 	render_init << <blocks, threads >> > (nx, ny, d_rand_state);
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());
-	render << <blocks, threads >> > (fb, nx, ny, ns, d_camera, d_world, d_rand_state);
+	render << <blocks, threads >> > (fb, nx, ny, ns, d_camera, d_world, d_rand_state, d_octree, d_list);
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());
 	stop = clock();
@@ -397,7 +413,7 @@ int main(int argc, char** argv) {
 		break;
 #ifdef USE_OPENGL
 	case 2:
-		render_in_window(nx, ny, blocks, threads, fb, d_camera, d_world, d_rand_state);
+		render_in_window(nx, ny, blocks, threads, fb, d_camera, d_world, d_rand_state, d_octree, d_list);
 		break;
 #endif
 	case 3:

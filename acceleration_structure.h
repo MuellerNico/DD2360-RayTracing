@@ -31,6 +31,12 @@ struct Octree {
 	int leafCount = 1;	// workaround
 };
 
+struct Octhit
+{
+	int* possible_hits; // maybe more are needed?
+	int num_p_hits;
+};
+
 inline bool intersects(const sphere& obj, AABB aabb) {
 	aabb.x_low -= obj.radius;
 	aabb.y_low -= obj.radius;
@@ -146,4 +152,74 @@ Octree* buildOctree(sphere* d_list, const int num_hitables) {
 	}
 
 	return octree;
+}
+
+__device__ bool intersect_ray_aabb(const ray& r, const AABB& box) {
+	float tmin = (box.x_low - r.origin().x()) / r.direction().x();
+	float tmax = (box.x_high - r.origin().x()) / r.direction().x();
+	if (tmin > tmax) { float tmp = tmin; tmin = tmax; tmax = tmp; }
+
+	float tymin = (box.y_low - r.origin().y()) / r.direction().y();
+	float tymax = (box.y_high - r.origin().y()) / r.direction().y();
+	if (tymin > tymax) { float tmp = tymin; tymin = tymax; tymax = tmp; }
+	if ((tmin > tymax) || (tymin > tmax)) return false;
+	if (tymin > tmin) tmin = tymin;
+	if (tymax < tmax) tmax = tymax;
+
+	float tzmin = (box.z_low - r.origin().z()) / r.direction().z();
+	float tzmax = (box.z_high - r.origin().z()) / r.direction().z();
+	if (tzmin > tzmax) { float tmp = tzmin; tzmin = tzmax; tzmax = tmp; }
+	if ((tmin > tzmax) || (tzmin > tmax)) return false;
+
+	return true;
+}
+
+
+__device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, Octhit* hit)
+{
+	if(!intersect_ray_aabb(r, curr_node->aabb))
+	{
+		// misses bb -> no further traversal
+		return;
+	}
+
+	if (curr_node->level == TREE_HEIGHT) {
+		// found last node before leaf; hits all children
+		for (int i = 0; i < 8; i++) {
+			int leaf_index = curr_node->children[i];
+			if(leaf_index == 0)
+			{
+				// no leaf -> return
+				return;
+			}else if (leaf_index >= octree->leafCount){
+				printf("leaf_index should never be bigger than leaf_count. Something went wrong.\n");
+				return;
+			}
+
+			OctLeaf curr_leaf = octree->leaves[leaf_index];
+			for(int j=0; j < curr_leaf.index_count; j++)
+			{
+				int sphere_index = curr_leaf.sphere_indices[j];
+				hit->possible_hits[hit->num_p_hits++] = sphere_index;	// add to hit result
+			}
+		}
+		return;
+	}
+
+	for(int i = 0; i < CHILDREN_COUNT; i++)
+	{
+		// check all existing children
+		if(curr_node->children[i] != 0)
+			traverseTree(octree, r, &octree->nodes[curr_node->children[i]], hit);
+	}
+}
+
+__device__ Octhit* hitTree(Octree* octree, const ray& r)
+{
+	Octhit* hit = new Octhit();
+	hit->possible_hits = new int[600];
+
+	traverseTree(octree, r, &octree->nodes[0], hit);	// start at root 0
+
+	return hit;
 }
