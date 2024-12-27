@@ -41,6 +41,18 @@ Octree* octree_deep_copy(Octree* h_octree) {
 	return d_octree;
 }
 
+__global__ void verify_octree(Octree* octree) {
+	if (threadIdx.x == 0 && blockIdx.x == 0) {
+		printf("Verifying octree:\n");
+		printf("Node count: %d\n", octree->nodeCount);
+		printf("Leaf count: %d\n", octree->leafCount);
+		printf("Root node level: %d\n", octree->nodes[0].level);
+		printf("Root AABB: (%f,%f,%f) to (%f,%f,%f)\n",
+			octree->nodes[0].aabb.x_low, octree->nodes[0].aabb.y_low, octree->nodes[0].aabb.z_low,
+			octree->nodes[0].aabb.x_high, octree->nodes[0].aabb.y_high, octree->nodes[0].aabb.z_high);
+	}
+}
+
 // Matching the C++ code would recurse enough into color() calls that
 // it was blowing up the stack, so we have to turn this into a
 // limited-depth loop instead.  Later code in the book limits to a max
@@ -52,7 +64,14 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
 	for (int i = 0; i < 50; i++) {
 		//printf("before hittree\n");
 		Octhit hit;
+		//printf("before hittree\n");
 		hitTree(d_octree, r, hit);
+		printf("after hittree\n");
+
+		if (hit.num_p_hits > Octhit::MAX_HITS) {
+			printf("Warning: Too many hits: %d\n", hit.num_p_hits);
+			hit.num_p_hits = Octhit::MAX_HITS;
+		}
 
 		hit_record rec;
 		bool hit_anything = false;
@@ -428,6 +447,7 @@ int main(int argc, char** argv) {
 
 	// upload octree to gpu
 	Octree* d_octree = octree_deep_copy(octree);
+	verify_octree << <1, 1 >> > (d_octree);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	clock_t start, stop;
