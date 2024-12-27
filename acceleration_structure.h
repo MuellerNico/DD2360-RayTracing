@@ -140,7 +140,11 @@ Octree* buildOctree(sphere* d_list, const int num_hitables) {
 
 	// initialize root node
 	OctNode* root = &(octree->nodes[0]);
-	*root = { 0, -11, -10000, -11, 11, 1, 11 };	// assuming whole world is in coordinate range [-50, 50] in all directions
+	*root = {
+		0,
+		{ -11, -10000, -11, 11, 1, 11 },  // AABB
+		{ 0,0,0,0,0,0,0,0 }              // children
+	};
 	octree->nodeCount++;
 
 	for (int i = 0; i < num_hitables; i++) {
@@ -177,6 +181,8 @@ __device__ bool intersect_ray_aabb(const ray& r, const AABB& box) {
 
 __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, Octhit* hit)
 {
+	// TODO: find out why error is thrown in here
+	// TODO: find out why ray seems to hit too much, resulting in Octhit returning more spheres than seem necessary
 	if(!intersect_ray_aabb(r, curr_node->aabb))
 	{
 		// misses bb -> no further traversal
@@ -200,7 +206,7 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, O
 			for(int j=0; j < curr_leaf.index_count; j++)
 			{
 				int sphere_index = curr_leaf.sphere_indices[j];
-				hit->possible_hits[hit->num_p_hits++] = sphere_index;	// add to hit result
+				hit->possible_hits[hit->num_p_hits++] = sphere_index;	// add to hit result TODO error seems to be thrown here, but not sure
 			}
 		}
 		return;

@@ -44,12 +44,15 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
 	vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
 	for (int i = 0; i < 50; i++) {
 		printf("before hittree\n");
-		Octhit* octhit = hitTree(d_octree, r);
+		Octhit* octhit = hitTree(d_octree, r); // TODO: make this not trow an error
 
-		printf("Octree hit: %d\n", octhit->num_p_hits);
+		printf("Octree hit: %d\n", octhit->num_p_hits); // debug
+		// TODO:
+		// replace (*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)
+		// instead check all the spheres that were returned from octhit for collision
 
-		delete[] octhit->possible_hits;
-		delete octhit;
+		delete[] octhit->possible_hits; // TODO: move the destruction to somewhere else
+		delete octhit;					//
 
 		hit_record rec;
 		if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
