@@ -368,8 +368,6 @@ int main(int argc, char** argv) {
 	checkCudaErrors(cudaMemcpy(cpu_spheres, d_list, NUM_SPHERES * sizeof(sphere), cudaMemcpyDeviceToHost));
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	sphere temp = cpu_spheres[2];	// TODO: why is only first element filled/copied?
-
 	clock_t start, stop;
 	start = clock();
 	// Render our buffer
