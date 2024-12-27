@@ -67,11 +67,7 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
 		//printf("before hittree\n");
 		hitTree(d_octree, r, hit);
 		printf("after hittree\n");
-
-		if (hit.num_p_hits > Octhit::MAX_HITS) {
-			printf("Warning: Too many hits: %d\n", hit.num_p_hits);
-			hit.num_p_hits = Octhit::MAX_HITS;
-		}
+		printf("Number of potential hits: %d\n", hit.num_p_hits);
 
 		hit_record rec;
 		bool hit_anything = false;
@@ -84,11 +80,17 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
 
 		for (int j = 0; j < hit.num_p_hits; ++j) {
 			int sphere_idx = hit.possible_hits[j];
+			printf("Testing sphere %d\n", sphere_idx);
+			if (sphere_idx < 0 || sphere_idx >= NUM_SPHERES) {
+				printf("Invalid sphere index: %d\n", sphere_idx);
+				continue;
+			}
 			hit_record temp_rec;
 			if ((*d_list)[sphere_idx].hit(cur_ray, 0.001f, closest_so_far, temp_rec)) {
 				hit_anything = true;
 				closest_so_far = temp_rec.t;
 				rec = temp_rec;
+				printf("Hit sphere %d at distance %f\n", sphere_idx, temp_rec.t);
 			}
 		}
 
@@ -450,11 +452,37 @@ int main(int argc, char** argv) {
 	verify_octree << <1, 1 >> > (d_octree);
 	checkCudaErrors(cudaDeviceSynchronize());
 
+	test_root_access << <1, 1 >> > (d_octree);
+	checkCudaErrors(cudaGetLastError());
+	checkCudaErrors(cudaDeviceSynchronize());
+	printf("Root access test complete\n");
+
+	dim3 blocks((nx + tx - 1) / tx, (ny + ty - 1) / ty);
+	dim3 threads(tx, ty);
+	test_ray_generation << <blocks, threads >> > (d_camera, nx, ny, d_rand_state);
+	checkCudaErrors(cudaGetLastError());
+	checkCudaErrors(cudaDeviceSynchronize());
+	printf("Ray generation test complete\n");
+
+	// Create a test ray pointing into the scene
+	ray test_ray(vec3(13, 2, 3), vec3(-10, -4, 1));
+	test_ray_aabb_intersection << <1, 1 >> > (d_octree, test_ray);
+	checkCudaErrors(cudaGetLastError());
+	checkCudaErrors(cudaDeviceSynchronize());
+	printf("Ray-AABB intersection test complete\n");
+
+	test_child_access << <1, 1 >> > (d_octree);
+	checkCudaErrors(cudaGetLastError());
+	checkCudaErrors(cudaDeviceSynchronize());
+	printf("Child access test complete\n");
+
+
+
 	clock_t start, stop;
 	start = clock();
 	// Render our buffer
-	dim3 blocks((nx + tx - 1) / tx, (ny + ty - 1) / ty);
-	dim3 threads(tx, ty);
+/*	dim3 blocks((nx + tx - 1) / tx, (ny + ty - 1) / ty);
+	dim3 threads(tx, ty)*/;
 	render_init << <blocks, threads >> > (nx, ny, d_rand_state);
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());

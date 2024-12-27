@@ -360,114 +360,117 @@ __device__ void traverseTree(Octree* octree, const ray& r, int nodeIndex, Octhit
 ///////////////////////////////////////////////////
 
 
-// First kernel: Just validate the node and check intersection
-__device__ bool validateAndIntersectNode(Octree* octree, const ray& r, int nodeIndex, int* level) {
-	printf("Validation check for node %d\n", nodeIndex);
+struct TraversalStats {
+	static const int MAX_DEPTH = 10;  // Reasonable max depth to prevent infinite recursion
+	int current_depth;
+	int visited_nodes;
+};
 
-	// Basic index validation
-	if (nodeIndex < 0 || nodeIndex >= NUMBER_NODES) {
-		printf("Error: Invalid node index %d\n", nodeIndex);
-		return false;
-	}
-
-	// Get node and check AABB intersection
-	const OctNode& curr_node = octree->nodes[nodeIndex];
-	*level = curr_node.level;
-
-	bool intersects = intersect_ray_aabb(r, curr_node.aabb);
-	printf("Node %d intersection result: %d\n", nodeIndex, intersects);
-
-	return intersects;
-}
-
-// Second kernel: Process a leaf node
-__device__ void processLeafNode(Octree* octree, int nodeIndex, Octhit* hit) {
-	printf("Processing leaf node %d\n", nodeIndex);
-
-	const OctNode& curr_node = octree->nodes[nodeIndex];
-
-	for (int i = 0; i < CHILDREN_COUNT; i++) {
-		int leaf_index = curr_node.children[i];
-
-		if (leaf_index <= 0 || leaf_index >= octree->leafCount) {
-			printf("Skipping invalid leaf index %d\n", leaf_index);
-			continue;
-		}
-
-		const OctLeaf& curr_leaf = octree->leaves[leaf_index];
-		printf("Processing leaf %d with %d spheres\n", leaf_index, curr_leaf.index_count);
-
-		for (int j = 0; j < curr_leaf.index_count && j < SPHERES_PER_LEAF; j++) {
-			int sphere_index = curr_leaf.sphere_indices[j];
-
-			if (sphere_index >= 0 && sphere_index < NUM_SPHERES && hit->num_p_hits < Octhit::MAX_HITS) {
-				hit->possible_hits[hit->num_p_hits++] = sphere_index;
-				printf("Added sphere %d from leaf %d\n", sphere_index, leaf_index);
-			}
-		}
-	}
-}
-
-// declare traverseTree function
-__device__ void traverseTree(Octree* octree, const ray& r, int nodeIndex, Octhit* hit);
-
-// Third kernel: Handle internal node traversal
-__device__ void processInternalNode(Octree* octree, const ray& r, int nodeIndex, Octhit* hit) {
-	printf("Processing internal node %d\n", nodeIndex);
-
-	const OctNode& curr_node = octree->nodes[nodeIndex];
-
-	for (int i = 0; i < CHILDREN_COUNT; i++) {
-		int child_index = curr_node.children[i];
-		if (child_index > 0 && child_index < octree->nodeCount) {
-			printf("Traversing to child %d from node %d\n", child_index, nodeIndex);
-			traverseTree(octree, r, child_index, hit);
-		}
-	}
-}
-
-// Main traversal function now uses these separate components
-__device__ void traverseTree(Octree* octree, const ray& r, int nodeIndex, Octhit* hit) {
-	printf("Starting traversal for node %d\n", nodeIndex);
-
-	// Early exit if hit buffer is full
-	if (hit->num_p_hits >= Octhit::MAX_HITS) {
-		printf("Hit buffer full, early exit\n");
-		return;
-	}
-
-	// Step 1: Validate and check intersection
-	int node_level;
-	if (!validateAndIntersectNode(octree, r, nodeIndex, &node_level)) {
-		printf("Node %d validation or intersection failed\n", nodeIndex);
-		return;
-	}
-
-	// Step 2: Process based on node type
-	if (node_level == TREE_HEIGHT) {
-		processLeafNode(octree, nodeIndex, hit);
-	}
-	else {
-		processInternalNode(octree, r, nodeIndex, hit);
-	}
-
-	printf("Completed traversal for node %d\n", nodeIndex);
-}
-
-
-__device__ void hitTree(Octree* octree, const ray& r, Octhit& hit) {
-	printf("=== Starting new ray traversal ===\n");
-
-	if (octree == nullptr) {
-		printf("ERROR: Null octree pointer\n");
-		return;
-	}
-
-	hit.num_p_hits = 0;
-	traverseTree(octree, r, 0, &hit);
-
-	printf("=== Ray traversal complete, found %d hits ===\n", hit.num_p_hits);
-}
+//__device__ void traverseTree(Octree* octree, const ray& r, int nodeIndex, Octhit* hit, TraversalStats* stats) {
+//	// Prevent stack overflow
+//	if (stats->current_depth >= TraversalStats::MAX_DEPTH) {
+//		printf("Max depth reached at node %d\n", nodeIndex);
+//		return;
+//	}
+//	stats->current_depth++;
+//
+//	// Basic validation
+//	if (nodeIndex < 0 || nodeIndex >= NUMBER_NODES) {
+//		printf("Invalid node index: %d\n", nodeIndex);
+//		stats->current_depth--;
+//		return;
+//	}
+//
+//	// Track visited nodes
+//	stats->visited_nodes++;
+//	if (stats->visited_nodes > NUMBER_NODES) {
+//		printf("Too many node visits, possible cycle detected\n");
+//		stats->current_depth--;
+//		return;
+//	}
+//
+//	// Get node reference safely
+//	const OctNode& curr_node = octree->nodes[nodeIndex];
+//
+//	// Validate node level
+//	if (curr_node.level < 0 || curr_node.level > TREE_HEIGHT) {
+//		printf("Invalid node level %d at index %d\n", curr_node.level, nodeIndex);
+//		stats->current_depth--;
+//		return;
+//	}
+//
+//	// Check intersection
+//	if (!intersect_ray_aabb(r, curr_node.aabb)) {
+//		stats->current_depth--;
+//		return;
+//	}
+//
+//	// Process leaf node
+//	if (curr_node.level == TREE_HEIGHT) {
+//		for (int i = 0; i < CHILDREN_COUNT; i++) {
+//			int leaf_index = curr_node.children[i];
+//			if (leaf_index <= 0 || leaf_index >= octree->leafCount) {
+//				continue;
+//			}
+//
+//			const OctLeaf& curr_leaf = octree->leaves[leaf_index];
+//			for (int j = 0; j < curr_leaf.index_count && j < SPHERES_PER_LEAF; j++) {
+//				int sphere_index = curr_leaf.sphere_indices[j];
+//				if (sphere_index >= 0 && sphere_index < NUM_SPHERES &&
+//					hit->num_p_hits < Octhit::MAX_HITS) {
+//					hit->possible_hits[hit->num_p_hits++] = sphere_index;
+//				}
+//			}
+//		}
+//		stats->current_depth--;
+//		return;
+//	}
+//
+//	// Process internal node
+//	for (int i = 0; i < CHILDREN_COUNT; i++) {
+//		int child_index = curr_node.children[i];
+//		if (child_index > 0 && child_index < octree->nodeCount) {
+//			traverseTree(octree, r, child_index, hit, stats);
+//		}
+//	}
+//
+//	stats->current_depth--;
+//}
+//
+//__device__ void hitTree(Octree* octree, const ray& r, Octhit& hit) {
+//	// First, validate octree pointer
+//	if (octree == nullptr) {
+//		printf("ERROR: Null octree pointer in hitTree\n");
+//		return;
+//	}
+//
+//	// Validate ray components to ensure they're not NaN or infinite
+//	if (isnan(r.origin().x()) || isnan(r.origin().y()) || isnan(r.origin().z()) ||
+//		isnan(r.direction().x()) || isnan(r.direction().y()) || isnan(r.direction().z())) {
+//		printf("ERROR: Ray contains NaN values\n");
+//		return;
+//	}
+//
+//	hit.num_p_hits = 0;
+//
+//	// Print ray information
+//	printf("Processing ray: origin(%f,%f,%f) dir(%f,%f,%f)\n",
+//		r.origin().x(), r.origin().y(), r.origin().z(),
+//		r.direction().x(), r.direction().y(), r.direction().z());
+//
+//	TraversalStats stats = { 0, 0 };
+//
+//	// Check root node before traversal
+//	if (octree->nodeCount == 0) {
+//		printf("ERROR: Empty octree (nodeCount = 0)\n");
+//		return;
+//	}
+//
+//	const OctNode& root = octree->nodes[0];
+//	printf("Starting traversal at root node (level %d)\n", root.level);
+//
+//	traverseTree(octree, r, 0, &hit, &stats);
+//}
 
 
 //__device__ Octhit* hitTree(Octree* octree, const ray& r)
@@ -479,3 +482,115 @@ __device__ void hitTree(Octree* octree, const ray& r, Octhit& hit) {
 //
 //	return hit;
 //}
+
+
+
+
+// First kernel: Just test basic octree access and root node validation
+__global__ void test_root_access(Octree* octree) {
+	if (threadIdx.x == 0 && blockIdx.x == 0) {
+		printf("Testing root node access:\n");
+		const OctNode& root = octree->nodes[0];
+		printf("Root level: %d\n", root.level);
+		printf("Root AABB: (%f,%f,%f) to (%f,%f,%f)\n",
+			root.aabb.x_low, root.aabb.y_low, root.aabb.z_low,
+			root.aabb.x_high, root.aabb.y_high, root.aabb.z_high);
+	}
+}
+
+// Second kernel: Test ray generation and basic ray properties
+__global__ void test_ray_generation(camera** cam, int max_x, int max_y, curandState* rand_state) {
+	int i = threadIdx.x + blockIdx.x * blockDim.x;
+	int j = threadIdx.y + blockIdx.y * blockDim.y;
+	if ((i >= max_x) || (j >= max_y)) return;
+
+	int pixel_index = j * max_x + i;
+	curandState local_rand_state = rand_state[pixel_index];
+
+	real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
+	real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
+	ray r = (*cam)->get_ray(u, v, &local_rand_state);
+
+	//printf("Ray at pixel (%d,%d): origin(%f,%f,%f) dir(%f,%f,%f)\n",
+	//	i, j, r.origin().x(), r.origin().y(), r.origin().z(),
+	//	r.direction().x(), r.direction().y(), r.direction().z());
+}
+
+// Third kernel: Test single ray-AABB intersection
+__global__ void test_ray_aabb_intersection(Octree* octree, ray test_ray) {
+	if (threadIdx.x == 0 && blockIdx.x == 0) {
+		const OctNode& root = octree->nodes[0];
+		bool intersects = intersect_ray_aabb(test_ray, root.aabb);
+		printf("Test ray intersection with root AABB: %s\n", intersects ? "hit" : "miss");
+	}
+}
+
+// Fourth kernel: Test child node access for root
+__global__ void test_child_access(Octree* octree) {
+	if (threadIdx.x == 0 && blockIdx.x == 0) {
+		const OctNode& root = octree->nodes[0];
+		printf("Root children indices: ");
+		for (int i = 0; i < CHILDREN_COUNT; i++) {
+			printf("%d ", root.children[i]);
+			if (root.children[i] > 0) {
+				const OctNode& child = octree->nodes[root.children[i]];
+				printf("(level %d) ", child.level);
+			}
+		}
+		printf("\n");
+	}
+}
+
+
+__device__ void traverseTree_iterative(Octree* octree, const ray& r, Octhit* hit) {
+	// Fixed-size stack to replace recursion
+	static const int MAX_STACK = 32;  // More than enough for our tree height
+	int stack[MAX_STACK];
+	int stack_ptr = 0;
+
+	// Push root node
+	stack[stack_ptr++] = 0;
+
+	// Iterate while we have nodes to process
+	while (stack_ptr > 0) {
+		int nodeIndex = stack[--stack_ptr];
+		const OctNode& curr_node = octree->nodes[nodeIndex];
+
+		// Skip if no intersection
+		if (!intersect_ray_aabb(r, curr_node.aabb)) {
+			continue;
+		}
+
+		if (curr_node.level == TREE_HEIGHT) {
+			// Process leaf node
+			for (int i = 0; i < CHILDREN_COUNT && hit->num_p_hits < Octhit::MAX_HITS; i++) {
+				int leaf_index = curr_node.children[i];
+				if (leaf_index <= 0 || leaf_index >= octree->leafCount) continue;
+
+				const OctLeaf& curr_leaf = octree->leaves[leaf_index];
+				for (int j = 0; j < curr_leaf.index_count && j < SPHERES_PER_LEAF; j++) {
+					int sphere_index = curr_leaf.sphere_indices[j];
+					if (sphere_index >= 0 && sphere_index < NUM_SPHERES) {
+						hit->possible_hits[hit->num_p_hits++] = sphere_index;
+					}
+				}
+			}
+		}
+		else {
+			// Push child nodes (in reverse order so we process them in forward order)
+			for (int i = CHILDREN_COUNT - 1; i >= 0; i--) {
+				int child_index = curr_node.children[i];
+				if (child_index > 0 && child_index < octree->nodeCount && stack_ptr < MAX_STACK) {
+					stack[stack_ptr++] = child_index;
+				}
+			}
+		}
+	}
+}
+
+__device__ void hitTree(Octree* octree, const ray& r, Octhit& hit) {
+	if (octree == nullptr || octree->nodeCount == 0) return;
+
+	hit.num_p_hits = 0;
+	traverseTree_iterative(octree, r, &hit);
+}
