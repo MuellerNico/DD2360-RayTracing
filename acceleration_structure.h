@@ -1,6 +1,12 @@
 
 #include "sphere.h"
 
+#define CHILDREN_COUNT 8 // should not be changed, because it's an octree!
+#define TREE_HEIGHT 3
+#define NUMBER_NODES (1 + CHILDREN_COUNT + CHILDREN_COUNT * CHILDREN_COUNT + CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT) // Tree height == 3
+#define NUMBER_LEAFS (CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT) // Tree height == 3
+#define SPHERES_PER_LEAF 5
+
 struct AABB {
 	float x_low, y_low, z_low;
 	float x_high, y_high, z_high;
@@ -9,12 +15,20 @@ struct AABB {
 struct OctNode {	// is leaf at last level
 	int level; // == 3 indicates leaf
 	AABB aabb;
-	int children[8];
+	int children[CHILDREN_COUNT];
+};
+
+struct OctLeaf
+{
+	int sphere_indices[SPHERES_PER_LEAF];
+	int index_count;
 };
 
 struct Octree {
-	OctNode nodes[8 * 8 * 8 * 8];	// max 4 levels
+	OctNode nodes[NUMBER_NODES];
+	OctLeaf leaves[NUMBER_LEAFS + 1]; // skip index 0 
 	int nodeCount = 0;
+	int leafCount = 1;	// workaround
 };
 
 inline bool intersects(const sphere& obj, AABB aabb) {
@@ -32,26 +46,42 @@ inline bool intersects(const sphere& obj, AABB aabb) {
 
 inline int insert(Octree* octree, OctNode* node, const sphere& obj, int sphereidx) {
 	if (!intersects(obj, node->aabb)) {
-		printf("Something went wrong. Why is sphere not in range of nodes AABB?");
+		printf("Something went wrong. Why is sphere not in range of nodes AABB? Sphere origin: %f %f %f\n", obj.center.e[0], obj.center.e[1], obj.center.e[2]);
 		return 0;
 	}
 
-	if (node->level == 3) {
-		// found leaf; insert
+	if (node->level == TREE_HEIGHT) {
+		// found last node before leaf; insert
 		for (int i = 0; i < 8; i++) {
-			if (node->children[i] == -1) {
-				// empty spot -> insert
-				node->children[i] = sphereidx;
+			int leaf_index = node->children[i];
+			if(leaf_index == 0)
+			{
+				// create leaf
+				leaf_index = octree->leafCount++;
+				octree->leaves[leaf_index] = {}; // zero-init
+				node->children[i] = leaf_index;
+			}
+
+			OctLeaf* curr_leaf = &octree->leaves[leaf_index];
+
+			if(curr_leaf->index_count < SPHERES_PER_LEAF)
+			{
+				// enough space, insert sphere
+				curr_leaf->sphere_indices[curr_leaf->index_count++] = sphereidx;
 				return 1;
+			}else
+			{
+				// need to insert in next leaf
+				continue;
 			}
 		}
-		printf("Something went wrong. Leaf node full.");
+		printf("Something went wrong. Leaf nodes full. Extends: %f %f %f x %f %f %f\n", node->aabb.x_low, node->aabb.y_low, node->aabb.z_low, node->aabb.x_high, node->aabb.y_high, node->aabb.z_high);
 		return 0;
 	}
 
 	int insertCounter = 0;
 
-	auto halfs = [](float low, float high) -> float { return  (low + (high - low)); };
+	auto halfs = [](float low, float high) -> float { return  (low + (high - low) / 2); };
 
 	auto [x_low, y_low, z_low, x_high, y_high, z_high] = node->aabb;
 
@@ -86,7 +116,7 @@ inline int insert(Octree* octree, OctNode* node, const sphere& obj, int sphereid
 				node->children[i] = octree->nodeCount;
 				octree->nodes[octree->nodeCount++] = { node->level + 1, childrenBoxes[i], { 0 } };
 
-				insertCounter += insert(octree, &octree->nodes[octree->nodeCount - 1], obj, sphereidx);
+				insertCounter += insert(octree, &octree->nodes[node->children[i]], obj, sphereidx);
 			}
 			else {
 				// insert into existing node
@@ -98,19 +128,22 @@ inline int insert(Octree* octree, OctNode* node, const sphere& obj, int sphereid
 	return insertCounter;
 }
 
-void buildOctree(hitable** d_list, const int num_hitables) {
+Octree* buildOctree(sphere* d_list, const int num_hitables) {
 
 	Octree* octree = new Octree();
-	OctNode* root = &octree->nodes[0];
-	octree->nodeCount++;
 
 	// initialize root node
-	*root = { 0, -5, -5, -5, 5, 5, 5, -1, -1, -1, -1, -1, -1, -1, -1 };	// assuming whole world is in coordinate range [-5, 5] in all directions
+	OctNode* root = &(octree->nodes[0]);
+	*root = { 0, -11, -10000, -11, 11, 1, 11 };	// assuming whole world is in coordinate range [-50, 50] in all directions
+	octree->nodeCount++;
 
 	for (int i = 0; i < num_hitables; i++) {
-		sphere* curr_sphere = reinterpret_cast<sphere*>(d_list[i]);	// assuming its all spheres
+		sphere curr_sphere = d_list[i];
 
 		// insert recursively into tree
-		int duplicateCount = insert(octree, root, *curr_sphere, i);
+		int duplicateCount = insert(octree, root, curr_sphere, i);
+		std::cout << "sphere " << i << " duplicated " << duplicateCount << " times in tree\n";
 	}
+
+	return octree;
 }

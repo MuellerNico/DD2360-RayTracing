@@ -136,7 +136,7 @@ __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, c
 	if (threadIdx.x == 0 && blockIdx.x == 0) {
 		curandState local_rand_state = *rand_state;
 		(*d_list)[0] = sphere(vec3(0, -1000.0, -1), 1000,
-			new lambertian(vec3(0.5, 0.5, 0.5)));
+			new lambertian(vec3(0.5, 0.5, 0.5)));	// ground plane as sphere
 		int i = 1;
 		for (int a = -11; a < 11; a++) {
 			for (int b = -11; b < 11; b++) {
@@ -367,6 +367,9 @@ int main(int argc, char** argv) {
 	sphere* cpu_spheres = static_cast<sphere*>(malloc(sizeof(sphere) * NUM_SPHERES));
 	checkCudaErrors(cudaMemcpy(cpu_spheres, d_list, NUM_SPHERES * sizeof(sphere), cudaMemcpyDeviceToHost));
 	checkCudaErrors(cudaDeviceSynchronize());
+
+	// build octree
+	Octree* octree = buildOctree(cpu_spheres, NUM_SPHERES);
 
 	clock_t start, stop;
 	start = clock();
