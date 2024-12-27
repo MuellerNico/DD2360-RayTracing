@@ -34,6 +34,13 @@ void check_cuda(cudaError_t result, char const* const func, const char* const fi
 	}
 }
 
+Octree* octree_deep_copy(Octree* h_octree) {
+	Octree* d_octree;
+	checkCudaErrors(cudaMalloc(&d_octree, sizeof(Octree)));
+	checkCudaErrors(cudaMemcpy(d_octree, h_octree, sizeof(Octree), cudaMemcpyHostToDevice));
+	return d_octree;
+}
+
 // Matching the C++ code would recurse enough into color() calls that
 // it was blowing up the stack, so we have to turn this into a
 // limited-depth loop instead.  Later code in the book limits to a max
@@ -43,22 +50,34 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
 	ray cur_ray = r;
 	vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
 	for (int i = 0; i < 50; i++) {
-		printf("before hittree\n");
-		Octhit* octhit = hitTree(d_octree, r); // TODO: make this not trow an error
+		//printf("before hittree\n");
+		Octhit hit;
+		hitTree(d_octree, r, hit);
 
-		printf("Octree hit: %d\n", octhit->num_p_hits); // debug
+		hit_record rec;
+		bool hit_anything = false;
+		real_t closest_so_far = FLT_MAX; // init to infty
+
+		//printf("Octree hit: %d\n", octhit->num_p_hits); // debug
 		// TODO:
 		// replace (*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)
 		// instead check all the spheres that were returned from octhit for collision
 
-		delete[] octhit->possible_hits; // TODO: move the destruction to somewhere else
-		delete octhit;					//
+		for (int j = 0; j < hit.num_p_hits; ++j) {
+			int sphere_idx = hit.possible_hits[j];
+			hit_record temp_rec;
+			if ((*d_list)[sphere_idx].hit(cur_ray, 0.001f, closest_so_far, temp_rec)) {
+				hit_anything = true;
+				closest_so_far = temp_rec.t;
+				rec = temp_rec;
+			}
+		}
 
-		hit_record rec;
-		if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
+		if (hit_anything) {
 			ray scattered;
 			vec3 attenuation;
-			if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
+			if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state))
+			{
 				cur_attenuation *= attenuation;
 				cur_ray = scattered;
 			}
@@ -67,13 +86,37 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
 			}
 		}
 		else {
-			const vec3 unit_direction = unit_vector(cur_ray.direction());
-			const real_t t = real_t(0.5f) * (unit_direction.y() + (real_t)1.0f);
-			const vec3 c = (1.0f - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0);
-			return cur_attenuation * c;
+			vec3 unit_direction = unit_vector(cur_ray.direction());
+			real_t t = 0.5f * (unit_direction.y() + 1.0f);
+			return cur_attenuation * ((1.0f - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0));
 		}
 	}
+	
 	return vec3(0.0, 0.0, 0.0); // exceeded recursion
+
+	//	delete[] octhit->possible_hits; // TODO: move the destruction to somewhere else
+	//	delete octhit;					//
+
+	//	hit_record rec;
+	//	if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
+	//		ray scattered;
+	//		vec3 attenuation;
+	//		if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
+	//			cur_attenuation *= attenuation;
+	//			cur_ray = scattered;
+	//		}
+	//		else {
+	//			return vec3(0.0, 0.0, 0.0);
+	//		}
+	//	}
+	//	else {
+	//		const vec3 unit_direction = unit_vector(cur_ray.direction());
+	//		const real_t t = real_t(0.5f) * (unit_direction.y() + (real_t)1.0f);
+	//		const vec3 c = (1.0f - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0);
+	//		return cur_attenuation * c;
+	//	}
+	//}
+	//return vec3(0.0, 0.0, 0.0); // exceeded recursion
 }
 
 __global__ void rand_init(curandState* rand_state) {
@@ -384,10 +427,7 @@ int main(int argc, char** argv) {
 	Octree* octree = buildOctree(cpu_spheres, NUM_SPHERES);
 
 	// upload octree to gpu
-	Octree* d_octree;
-	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_octree),sizeof(Octree)));
-	checkCudaErrors(cudaMemcpy(d_octree, octree, sizeof(Octree), cudaMemcpyHostToDevice));
-	checkCudaErrors(cudaGetLastError());
+	Octree* d_octree = octree_deep_copy(octree);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	clock_t start, stop;

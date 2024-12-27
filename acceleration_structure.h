@@ -31,9 +31,9 @@ struct Octree {
 	int leafCount = 1;	// workaround
 };
 
-struct Octhit
-{
-	int* possible_hits; // maybe more are needed?
+struct Octhit {
+	static const int MAX_HITS = 600;
+	int possible_hits[MAX_HITS];
 	int num_p_hits;
 };
 
@@ -220,12 +220,19 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, O
 	}
 }
 
-__device__ Octhit* hitTree(Octree* octree, const ray& r)
-{
-	Octhit* hit = new Octhit();
-	hit->possible_hits = new int[600];
+//__device__ Octhit* hitTree(Octree* octree, const ray& r)
+//{
+//	Octhit* hit = new Octhit();
+//	hit->possible_hits = new int[600];
+//
+//	traverseTree(octree, r, &octree->nodes[0], hit);	// start at root 0
+//
+//	return hit;
+//}
 
-	traverseTree(octree, r, &octree->nodes[0], hit);	// start at root 0
-
-	return hit;
+__device__ void hitTree(Octree* octree, const ray& r, Octhit& hit) {
+	hit.num_p_hits = 0;
+	traverseTree(octree, r, &octree->nodes[0], &hit);
 }
+
+
