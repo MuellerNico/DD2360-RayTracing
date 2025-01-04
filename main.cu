@@ -38,6 +38,7 @@ void check_cuda(cudaError_t result, char const* const func, const char* const fi
 // it was blowing up the stack, so we have to turn this into a
 // limited-depth loop instead.  Later code in the book limits to a max
 // depth of 50, so we adapt this a few chapters early on the GPU.
+#define USE_OCTREE
 __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_state, Octree* d_octree, sphere(*d_list)[NUM_SPHERES]) {
     ray cur_ray = r;
     vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
@@ -46,19 +47,20 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
         Octhit* octhit = hitTree(d_octree, r);
 		// debug
         // printf("Octree hit: %d\n", octhit->num_p_hits);
+		hitable_list* world_list = (hitable_list*)(*world);
 		hit_record temp_rec, closest_rec;
 		bool hit_anything = false;
 		real_t closest_so_far = FLT_MAX;
 		for(int j = 0; j < octhit->num_p_hits; j++)
 		{
 			int sphere_idx = octhit->possible_hits[j];
-			sphere &curr_sphere = (*d_list)[sphere_idx];
-
-			if(curr_sphere.hit(cur_ray, real_t(0.001f), closest_so_far, temp_rec))
-			{
-				hit_anything = true;
-				closest_so_far = temp_rec.t;
-				closest_rec = temp_rec;
+			if(sphere_idx < NUM_SPHERES) {
+				if(world_list->list[sphere_idx]->hit(cur_ray, real_t(0.001f), closest_so_far, temp_rec))
+				{
+					hit_anything = true;
+					closest_so_far = temp_rec.t;
+					closest_rec = temp_rec;
+				}
 			}
 		}
 		if(hit_anything) {
