@@ -206,12 +206,18 @@ __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, c
 }
 
 __global__ void free_world(sphere(*d_list)[NUM_SPHERES], hitable** d_world, camera** d_camera) {
-	for (int i = 0; i < NUM_SPHERES; i++) {
-		delete (*d_list[i]).mat_ptr;
-	}
-	delete d_list;
-	delete* d_world;
-	delete* d_camera;
+    // Only free the materials and internal allocations
+    for (int i = 0; i < NUM_SPHERES; i++) {
+        delete (*d_list)[i].mat_ptr;
+    }
+    
+    // Free the hitable array inside hitable_list
+    hitable_list* world = (hitable_list*)(*d_world);
+    delete[] world->list;  // Free the array of hitable pointers
+    delete world;         // Free the hitable_list object
+    
+    // Free the camera object but not the pointer
+    delete *d_camera;
 }
 
 #ifdef USE_OPENGL
@@ -438,15 +444,25 @@ int main(int argc, char** argv) {
 	}
 
 	// clean up
-	checkCudaErrors(cudaDeviceSynchronize());
-	free_world << <1, 1 >> > (d_list, d_world, d_camera);
-	checkCudaErrors(cudaGetLastError());
-	checkCudaErrors(cudaFree(d_camera));
-	checkCudaErrors(cudaFree(d_world));
-	checkCudaErrors(cudaFree(d_list));
-	checkCudaErrors(cudaFree(d_rand_state));
-	checkCudaErrors(cudaFree(d_rand_state2));
-	checkCudaErrors(cudaFree(fb));
+    checkCudaErrors(cudaDeviceSynchronize());
+    
+    // First run the kernel to free device-side allocations
+    free_world<<<1, 1>>>(d_list, d_world, d_camera);
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaDeviceSynchronize());
+    
+    // Then free the CUDA-allocated memory
+    checkCudaErrors(cudaFree(d_camera));
+    checkCudaErrors(cudaFree(d_world));
+    checkCudaErrors(cudaFree(d_list));
+    checkCudaErrors(cudaFree(d_rand_state));
+    checkCudaErrors(cudaFree(d_rand_state2));
+    checkCudaErrors(cudaFree(fb));
+    
+    // Free octree-related memory
+    checkCudaErrors(cudaFree(d_octree));
+    free(octree);
+    free(cpu_spheres);
 
-	cudaDeviceReset();
+    cudaDeviceReset();
 }
