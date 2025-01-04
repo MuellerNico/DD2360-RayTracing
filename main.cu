@@ -42,31 +42,40 @@ void check_cuda(cudaError_t result, char const* const func, const char* const fi
 __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_state, Octree* d_octree, sphere(*d_list)[NUM_SPHERES]) {
     ray cur_ray = r;
     vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
+    
     for (int i = 0; i < 50; i++) {
 #ifdef USE_OCTREE
-        Octhit* octhit = hitTree(d_octree, r);
-		// debug
-        // printf("Octree hit: %d\n", octhit->num_p_hits);
-		hitable_list* world_list = (hitable_list*)(*world);
-		hit_record temp_rec, closest_rec;
-		bool hit_anything = false;
-		real_t closest_so_far = FLT_MAX;
-		for(int j = 0; j < octhit->num_p_hits; j++)
-		{
-			int sphere_idx = octhit->possible_hits[j];
-			if(sphere_idx < NUM_SPHERES) {
-				if(world_list->list[sphere_idx]->hit(cur_ray, real_t(0.001f), closest_so_far, temp_rec))
-				{
-					hit_anything = true;
-					closest_so_far = temp_rec.t;
-					closest_rec = temp_rec;
-				}
-			}
-		}
-		if(hit_anything) {
+        // Get potential hits from octree
+        Octhit* octhit = hitTree(d_octree, cur_ray);
+        
+        // Create a temporary list of hitables from octree results
+        hitable_list* world_list = (hitable_list*)(*world);
+        static __shared__ hitable* temp_list[MAX_POSSIBLE_HITS];
+        int valid_hits = 0;
+        
+        // Fill temporary list with only the potentially intersecting objects
+        for(int j = 0; j < octhit->num_p_hits; j++) {
+            int sphere_idx = octhit->possible_hits[j];
+            if(sphere_idx >= 0 && sphere_idx < NUM_SPHERES) {
+                temp_list[valid_hits++] = world_list->list[sphere_idx];
+            }
+        }
+        
+        // Create temporary hitable_list with filtered objects
+        static __shared__ hitable_list temp_world;
+        temp_world.list = temp_list;
+        temp_world.list_size = valid_hits;
+
+        // std::cerr << "num_p_hits: " << octhit->num_p_hits << "\nvalid hits: " << temp_world.list_size <<"\n";
+        //printf("numphits: %d\nvalid hits: %d\n", octhit->num_p_hits, temp_world.list_size);
+
+
+        // Use existing hit testing code with filtered list
+        hit_record rec;
+        if (temp_world.hit(cur_ray, 0.001f, FLT_MAX, rec)) {
             ray scattered;
             vec3 attenuation;
-            if (closest_rec.mat_ptr->scatter(cur_ray, closest_rec, attenuation, scattered, local_rand_state)) {
+            if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
                 cur_attenuation *= attenuation;
                 cur_ray = scattered;
             }
@@ -74,7 +83,6 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
                 return vec3(0.0, 0.0, 0.0);
             }
         }
-
 #else
         hit_record rec;
         if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
