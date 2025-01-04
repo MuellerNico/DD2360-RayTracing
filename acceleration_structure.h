@@ -6,7 +6,9 @@
 #define NUMBER_NODES (1 + CHILDREN_COUNT + CHILDREN_COUNT * CHILDREN_COUNT + CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT) // Tree height == 3
 #define NUMBER_LEAFS (CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT) // Tree height == 3
 #define SPHERES_PER_LEAF 5
+#define MAX_POSSIBLE_HITS 600
 
+// axis aligned bounding box
 struct AABB {
 	float x_low, y_low, z_low;
 	float x_high, y_high, z_high;
@@ -33,7 +35,7 @@ struct Octree {
 
 struct Octhit
 {
-	int* possible_hits; // maybe more are needed?
+	int possible_hits[MAX_POSSIBLE_HITS];
 	int num_p_hits;
 };
 
@@ -179,53 +181,42 @@ __device__ bool intersect_ray_aabb(const ray& r, const AABB& box) {
 }
 
 
-__device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, Octhit* hit)
-{
-	// TODO: find out why error is thrown in here
-	// TODO: find out why ray seems to hit too much, resulting in Octhit returning more spheres than seem necessary
-	if(!intersect_ray_aabb(r, curr_node->aabb))
-	{
-		// misses bb -> no further traversal
-		return;
-	}
+__device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, Octhit* hit) {
+    if(!intersect_ray_aabb(r, curr_node->aabb)) {
+        return;
+    }
 
-	if (curr_node->level == TREE_HEIGHT) {
-		// found last node before leaf; hits all children
-		for (int i = 0; i < 8; i++) {
-			int leaf_index = curr_node->children[i];
-			if(leaf_index == 0)
-			{
-				// no leaf -> return
-				return;
-			}else if (leaf_index >= octree->leafCount){
-				printf("leaf_index should never be bigger than leaf_count. Something went wrong.\n");
-				return;
-			}
+    if (curr_node->level == TREE_HEIGHT) {
+        for (int i = 0; i < 8; i++) {
+            int leaf_index = curr_node->children[i];
+            if(leaf_index == 0) {
+                return;
+            } else if (leaf_index >= octree->leafCount) {
+                printf("leaf_index should never be bigger than leaf_count. Something went wrong.\n");
+                return;
+            }
 
-			OctLeaf curr_leaf = octree->leaves[leaf_index];
-			for(int j=0; j < curr_leaf.index_count; j++)
-			{
-				int sphere_index = curr_leaf.sphere_indices[j];
-				hit->possible_hits[hit->num_p_hits++] = sphere_index;	// add to hit result TODO error seems to be thrown here, but not sure
-			}
-		}
-		return;
-	}
+            OctLeaf curr_leaf = octree->leaves[leaf_index];
+            for(int j=0; j < curr_leaf.index_count; j++) {
+                if(hit->num_p_hits < MAX_POSSIBLE_HITS) {  // Check array bounds
+                    hit->possible_hits[hit->num_p_hits++] = curr_leaf.sphere_indices[j];
+                }
+            }
+        }
+        return;
+    }
 
-	for(int i = 0; i < CHILDREN_COUNT; i++)
-	{
-		// check all existing children
-		if(curr_node->children[i] != 0)
-			traverseTree(octree, r, &octree->nodes[curr_node->children[i]], hit);
-	}
+    for(int i = 0; i < CHILDREN_COUNT; i++) {
+        if(curr_node->children[i] != 0)
+            traverseTree(octree, r, &octree->nodes[curr_node->children[i]], hit);
+    }
 }
 
-__device__ Octhit* hitTree(Octree* octree, const ray& r)
-{
-	Octhit* hit = new Octhit();
-	hit->possible_hits = new int[600];
-
-	traverseTree(octree, r, &octree->nodes[0], hit);	// start at root 0
-
-	return hit;
+__device__ Octhit* hitTree(Octree* octree, const ray& r) {
+    static __shared__ Octhit hit;
+    hit.num_p_hits = 0;
+    
+    traverseTree(octree, r, &octree->nodes[0], &hit);
+    
+    return &hit;  // Return pointer to shared memory
 }

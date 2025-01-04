@@ -39,41 +39,34 @@ void check_cuda(cudaError_t result, char const* const func, const char* const fi
 // limited-depth loop instead.  Later code in the book limits to a max
 // depth of 50, so we adapt this a few chapters early on the GPU.
 __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_state, Octree* d_octree, sphere(*d_list)[NUM_SPHERES]) {
-	
-	ray cur_ray = r;
-	vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
-	for (int i = 0; i < 50; i++) {
-		printf("before hittree\n");
-		Octhit* octhit = hitTree(d_octree, r); // TODO: make this not trow an error
+    ray cur_ray = r;
+    vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
+    for (int i = 0; i < 50; i++) {
+        Octhit* octhit = hitTree(d_octree, r);
 
-		printf("Octree hit: %d\n", octhit->num_p_hits); // debug
-		// TODO:
-		// replace (*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)
-		// instead check all the spheres that were returned from octhit for collision
+		// debug
+        printf("Octree hit: %d\n", octhit->num_p_hits);
 
-		delete[] octhit->possible_hits; // TODO: move the destruction to somewhere else
-		delete octhit;					//
-
-		hit_record rec;
-		if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
-			ray scattered;
-			vec3 attenuation;
-			if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
-				cur_attenuation *= attenuation;
-				cur_ray = scattered;
-			}
-			else {
-				return vec3(0.0, 0.0, 0.0);
-			}
-		}
-		else {
-			const vec3 unit_direction = unit_vector(cur_ray.direction());
-			const real_t t = real_t(0.5f) * (unit_direction.y() + (real_t)1.0f);
-			const vec3 c = (1.0f - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0);
-			return cur_attenuation * c;
-		}
-	}
-	return vec3(0.0, 0.0, 0.0); // exceeded recursion
+        hit_record rec;
+        if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
+            ray scattered;
+            vec3 attenuation;
+            if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
+                cur_attenuation *= attenuation;
+                cur_ray = scattered;
+            }
+            else {
+                return vec3(0.0, 0.0, 0.0);
+            }
+        }
+        else {
+            const vec3 unit_direction = unit_vector(cur_ray.direction());
+            const real_t t = real_t(0.5f) * (unit_direction.y() + (real_t)1.0f);
+            const vec3 c = (1.0f - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0);
+            return cur_attenuation * c;
+        }
+    }
+    return vec3(0.0, 0.0, 0.0); // exceeded recursion
 }
 
 __global__ void rand_init(curandState* rand_state) {
