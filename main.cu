@@ -44,69 +44,49 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
     vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
     
     for (int i = 0; i < 50; i++) {
+		bool hit_anything = false;
+		hit_record rec;
 #ifdef USE_OCTREE
-        // Get potential hits from octree
         Octhit* octhit = hitTree(d_octree, cur_ray);
         
-        // Create a temporary list of hitables from octree results
-        hitable_list* world_list = (hitable_list*)(*world);
-        static __shared__ hitable* temp_list[MAX_POSSIBLE_HITS];
-        int valid_hits = 0;
-        
-        // Fill temporary list with only the potentially intersecting objects
+        // basically hitable_list::hit
+		hit_record temp_rec;
+		real_t closest_so_far = FLT_MAX;
         for(int j = 0; j < octhit->num_p_hits; j++) {
             int sphere_idx = octhit->possible_hits[j];
-            if(sphere_idx >= 0 && sphere_idx < NUM_SPHERES) {
-                temp_list[valid_hits++] = world_list->list[sphere_idx];
-            }
-        }
-        
-        // Create temporary hitable_list with filtered objects
-        static __shared__ hitable_list temp_world;
-        temp_world.list = temp_list;
-        temp_world.list_size = valid_hits;
-
-        // std::cerr << "num_p_hits: " << octhit->num_p_hits << "\nvalid hits: " << temp_world.list_size <<"\n";
-        //printf("numphits: %d\nvalid hits: %d\n", octhit->num_p_hits, temp_world.list_size);
-
-
-        // Use existing hit testing code with filtered list
-        hit_record rec;
-        if (temp_world.hit(cur_ray, 0.001f, FLT_MAX, rec)) {
-            ray scattered;
-            vec3 attenuation;
-            if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
-                cur_attenuation *= attenuation;
-                cur_ray = scattered;
-            }
-            else {
-                return vec3(0.0, 0.0, 0.0);
-            }
+            hitable* hit_pointer = ((hitable_list*)(*world))->list[sphere_idx];
+			sphere sphere_obj = *((sphere*)hit_pointer);
+			if (sphere_obj.hit(cur_ray, 0.001f, closest_so_far, temp_rec)) {
+				hit_anything = true;
+				closest_so_far = temp_rec.t;
+				rec = temp_rec;
+			}
         }
 #else
-        hit_record rec;
-        if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
-            ray scattered;
-            vec3 attenuation;
-            if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
-                cur_attenuation *= attenuation;
-                cur_ray = scattered;
-            }
-            else {
-                return vec3(0.0, 0.0, 0.0);
-            }
-        }
+		hit_anything = (*world)->hit(cur_ray, 0.001f, FLT_MAX, rec);
 #endif
-        else {
-            const vec3 unit_direction = unit_vector(cur_ray.direction());
-            const real_t t = real_t(0.5f) * (unit_direction.y() + (real_t)1.0f);
-            const vec3 c = (1.0f - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0);
-            return cur_attenuation * c;
-        }
-    }
-    return vec3(0.0, 0.0, 0.0); // exceeded recursion
+		if (hit_anything) {
+			ray scattered;
+			vec3 attenuation;
+			if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
+				cur_attenuation *= attenuation;
+				cur_ray = scattered;
+			}
+			else {
+				return vec3(0.0, 0.0, 0.0);
+			}
+		}
+		else {
+			const vec3 unit_direction = unit_vector(cur_ray.direction());
+			const real_t t = real_t(0.5f) * (unit_direction.y() + (real_t)1.0f);
+			const vec3 c = (1.0f - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0);
+			return cur_attenuation * c;
+		}
+	}
+	return vec3(0.0, 0.0, 0.0);
 }
 
+        
 __global__ void rand_init(curandState* rand_state) {
 	if (threadIdx.x == 0 && blockIdx.x == 0) {
 		curand_init(1984, 0, 0, rand_state);
