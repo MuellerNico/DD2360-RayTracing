@@ -37,7 +37,6 @@ struct ProcessedHit {
     bool hit_anything;
     hit_record rec;
     real_t closest_so_far;
-	int process_counts;
 };
 
 inline bool intersects(const sphere& obj, AABB aabb) {
@@ -212,7 +211,6 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, P
             OctLeaf curr_leaf = octree->leaves[leaf_index];
             for(int j=0; j < curr_leaf.index_count; j++) {
                 processHit(r, curr_leaf.sphere_indices[j], result, world);
-                result.process_counts++;
             }
         }
         return;
@@ -233,7 +231,7 @@ __device__ bool hitTree(Octree* octree, const ray& r, hit_record& rec, hitable**
     bool hit_ground = sphere_obj.hit(r, 0.001f, FLT_MAX, ground_rec);
     
     // init result with ground sphere's hit distance if it was hit
-    ProcessedHit result = {false, {}, hit_ground ? ground_rec.t : FLT_MAX, 0};
+    ProcessedHit result = {false, {}, hit_ground ? ground_rec.t : FLT_MAX};
     if (hit_ground) {
         result.hit_anything = true;
         result.rec = ground_rec;
