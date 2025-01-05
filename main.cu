@@ -20,6 +20,7 @@
 #endif
 
 #define NUM_SPHERES (22 * 22 + 1 + 3)
+#define SPHERE_RADIUS 0.2f
 #define USE_OCTREE
 
 // limited version of checkCudaErrors from helper_cuda.h in CUDA examples
@@ -145,26 +146,32 @@ __global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_s
 __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, camera** d_camera, int nx, int ny, curandState* rand_state) {
 	if (threadIdx.x == 0 && blockIdx.x == 0) {
 		curandState local_rand_state = *rand_state;
+		// create one huge sphere as the ground plane
 		(*d_list)[0] = sphere(vec3(0, -1000.0, -1), 1000,
 			new lambertian(vec3(0.5, 0.5, 0.5)));	// ground plane as sphere
 		int i = 1;
+		// create a lot of random small spheres
+		
 		for (int a = -11; a < 11; a++) {
 			for (int b = -11; b < 11; b++) {
 				const real_t choose_mat = RND;
-				const vec3 center(a + RND, 0.2, b + RND);
+				const vec3 center(a + RND, SPHERE_RADIUS, b + RND);
+				// randomly choose material
 				if (choose_mat < real_t(0.8f)) {
-					(*d_list)[i++] = sphere(center, 0.2,
+					(*d_list)[i++] = sphere(center, SPHERE_RADIUS,
 						new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
 				}
 				else if (choose_mat < real_t(0.95f)) {
-					(*d_list)[i++] = sphere(center, 0.2,
+					(*d_list)[i++] = sphere(center, SPHERE_RADIUS,
 						new metal(vec3(0.5f * (1.0f + RND), 0.5f * (1.0f + RND), 0.5f * (1.0f + RND)), 0.5f * RND));
 				}
 				else {
-					(*d_list)[i++] = sphere(center, 0.2, new dielectric(1.5));
+					(*d_list)[i++] = sphere(center, SPHERE_RADIUS, 
+						new dielectric(1.5));
 				}
 			}
 		}
+		// create three special medium spheres
 		(*d_list)[i++] = sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
 		(*d_list)[i++] = sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
 		(*d_list)[i++] = sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
