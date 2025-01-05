@@ -19,8 +19,8 @@
 #include <GLFW/glfw3.h>
 #endif
 
-#define NUM_SPHERES (22 * 22 + 1 + 3) // for convenience, always keep square number + 4
-#define SPHERE_RADIUS 0.2f
+#define NUM_SPHERES (66 * 66 + 1 + 3) // for convenience, always keep square number + 4
+#define SPHERE_RADIUS 0.1f
 #define USE_OCTREE
 
 // limited version of checkCudaErrors from helper_cuda.h in CUDA examples
@@ -151,11 +151,11 @@ __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, c
 			new lambertian(vec3(0.5, 0.5, 0.5)));	// ground plane as sphere
 		int i = 1;
 		// create a lot of random small spheres
-		const int spheres_per_dim = sqrt(NUM_SPHERES - 4); // -4 because ignore 3 special spheres and ground
-		static_assert(spheres_per_dim * spheres_per_dim + 4 == NUM_SPHERES, "NUM_SPHERES must be a square number + 4");
-		const double spacing = 22. / spheres_per_dim;
-		for (double a = -11; a < 11; a += spacing) {
-			for (double b = -11; b < 11; b += spacing) {
+		const int spheres_per_dim = sqrt((float) NUM_SPHERES - 4); // -4 because ignore 3 special spheres and ground
+		//assert(spheres_per_dim * spheres_per_dim + 4 == NUM_SPHERES, "NUM_SPHERES must be a square number + 4");
+		const double spacing = 20. / spheres_per_dim;
+		for (double a = -10; a < 10; a += spacing) {
+			for (double b = -10; b < 10; b += spacing) {
 				const real_t choose_mat = RND;
 				const vec3 center(a + RND, SPHERE_RADIUS, b + RND);
 				// randomly choose material
