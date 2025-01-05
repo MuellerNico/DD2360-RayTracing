@@ -33,12 +33,6 @@ struct Octree {
 	int leafCount = 1;	// workaround
 };
 
-struct Octhit
-{
-	int possible_hits[MAX_POSSIBLE_HITS];
-	int num_p_hits;
-};
-
 struct ProcessedHit {
     bool hit_anything;
     hit_record rec;
@@ -151,12 +145,12 @@ Octree* buildOctree(sphere* d_list, const int num_hitables) {
 	OctNode* root = &(octree->nodes[0]);
 	*root = {
 		0,
-		{ -11, -10000, -11, 11, 1, 11 },  // AABB
-		{ 0,0,0,0,0,0,0,0 }              // children
+		{ -11, 0, -11, 11, 2, 11 },  // AABB
+		{ 0,0,0,0,0,0,0,0 }          // children
 	};
 	octree->nodeCount++;
 
-	for (int i = 0; i < num_hitables; i++) {
+	for (int i = 1; i < num_hitables; i++) { // skip ground sphere (idx 0)
 		sphere curr_sphere = d_list[i];
 
 		// insert recursively into tree
@@ -187,8 +181,8 @@ __device__ bool intersect_ray_aabb(const ray& r, const AABB& box) {
 	return true;
 }
 
-// basically the same as hitable_list::hit
 __device__ void processHit(const ray& r, const int sphere_idx, ProcessedHit& result, hitable** world) {
+    if (sphere_idx == 0) return;
     hit_record temp_rec;
     hitable* hit_pointer = ((hitable_list*)(*world))->list[sphere_idx];
     sphere sphere_obj = *((sphere*)hit_pointer);
@@ -218,7 +212,7 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, P
             OctLeaf curr_leaf = octree->leaves[leaf_index];
             for(int j=0; j < curr_leaf.index_count; j++) {
                 processHit(r, curr_leaf.sphere_indices[j], result, world);
-				result.process_counts++;
+                result.process_counts++;
             }
         }
         return;
@@ -231,12 +225,26 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, P
 }
 
 __device__ bool hitTree(Octree* octree, const ray& r, hit_record& rec, hitable** world) {
-    ProcessedHit result = {false, {}, FLT_MAX, 0};
+    
+    // first check ground sphere (index 0)
+    hit_record ground_rec;
+    hitable* hit_pointer = ((hitable_list*)(*world))->list[0];
+    sphere sphere_obj = *((sphere*)hit_pointer);
+    bool hit_ground = sphere_obj.hit(r, 0.001f, FLT_MAX, ground_rec);
+    
+    // init result with ground sphere's hit distance if it was hit
+    ProcessedHit result = {false, {}, hit_ground ? ground_rec.t : FLT_MAX, 0};
+    if (hit_ground) {
+        result.hit_anything = true;
+        result.rec = ground_rec;
+    }
+        
     traverseTree(octree, r, &octree->nodes[0], result, world);
     
+    // Return final result
     if (result.hit_anything) {
         rec = result.rec;
+        return true;
     }
-	//printf("Processed hits: %d\n", result.process_counts);
-    return result.hit_anything;
+    return false;
 }
