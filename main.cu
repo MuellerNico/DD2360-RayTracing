@@ -47,7 +47,8 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
 		bool hit_anything = false;
 		hit_record rec;
 #ifdef USE_OCTREE
-        Octhit* octhit = hitTree(d_octree, cur_ray);
+        Octhit octhit;
+		hitTree(d_octree, cur_ray, &octhit);
         
         // basically hitable_list::hit
 		hit_record temp_rec;
@@ -62,6 +63,7 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
 				rec = temp_rec;
 			}
         }
+
 #else
 		hit_anything = (*world)->hit(cur_ray, 0.001f, FLT_MAX, rec);
 #endif

@@ -154,7 +154,7 @@ Octree* buildOctree(sphere* d_list, const int num_hitables) {
 
 		// insert recursively into tree
 		int duplicateCount = insert(octree, root, curr_sphere, i);
-		std::cout << "sphere " << i << " duplicated " << duplicateCount << " times in tree\n";
+		//std::cout << "sphere " << i << " duplicated " << duplicateCount << " times in tree\n";
 	}
 
 	return octree;
@@ -212,11 +212,11 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, O
     }
 }
 
-__device__ Octhit* hitTree(Octree* octree, const ray& r) {
-    static __shared__ Octhit hit;
-    hit.num_p_hits = 0;
+__device__ void hitTree(Octree* octree, const ray& r, Octhit* hit) {
+    //Octhit* hit = new Octhit(); //
+    hit->num_p_hits = 0;
     
-    traverseTree(octree, r, &octree->nodes[0], &hit);
+    traverseTree(octree, r, &octree->nodes[0], hit);
     
-    return &hit;  // Return pointer to shared memory
+    //return &hit;  // Return pointer to shared memory
 }
