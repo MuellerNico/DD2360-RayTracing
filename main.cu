@@ -53,8 +53,8 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
         // basically hitable_list::hit
 		hit_record temp_rec;
 		real_t closest_so_far = FLT_MAX;
-        for(int j = 0; j < octhit->num_p_hits; j++) {
-            int sphere_idx = octhit->possible_hits[j];
+        for(int j = 0; j < octhit.num_p_hits; j++) {
+            int sphere_idx = octhit.possible_hits[j];
             hitable* hit_pointer = ((hitable_list*)(*world))->list[sphere_idx];
 			sphere sphere_obj = *((sphere*)hit_pointer);
 			if (sphere_obj.hit(cur_ray, 0.001f, closest_so_far, temp_rec)) {
