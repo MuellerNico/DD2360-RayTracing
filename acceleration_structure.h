@@ -198,7 +198,7 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, O
                 return;
             }
 
-            OctLeaf curr_leaf = octree->leaves[leaf_index];
+            OctLeaf& curr_leaf = octree->leaves[leaf_index];
             for(int j=0; j < curr_leaf.index_count; j++) {
                 if(hit->num_p_hits < MAX_POSSIBLE_HITS) { 
 					hit->possible_hits[hit->num_p_hits++] = curr_leaf.sphere_indices[j];
