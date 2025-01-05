@@ -39,17 +39,17 @@ struct Octhit
 	int num_p_hits;
 };
 
-inline bool intersects(const sphere& obj, AABB aabb) {
-	aabb.x_low -= obj.radius;
-	aabb.y_low -= obj.radius;
-	aabb.z_low -= obj.radius;
-	aabb.x_high += obj.radius;
-	aabb.y_high += obj.radius;
-	aabb.z_high += obj.radius;
+inline __device__ bool intersects(const sphere& obj, const AABB& aabb) { // use const ref
+	const float x_low = aabb.x_low - obj.radius;
+	const float y_low = aabb.y_low - obj.radius;
+	const float z_low = aabb.z_low - obj.radius;
+	const float x_high = aabb.x_high + obj.radius;
+	const float y_high = aabb.y_high + obj.radius;
+	const float z_high = aabb.z_high + obj.radius;
 
-	return (obj.center.x() > aabb.x_low && obj.center.x() <= aabb.x_high)
-		&& (obj.center.y() >= aabb.y_low && obj.center.y() <= aabb.y_high)
-		&& (obj.center.z() >= aabb.z_low && obj.center.z() <= aabb.z_high);
+	return (obj.center.x() > x_low && obj.center.x() <= x_high)
+		&& (obj.center.y() >= y_low && obj.center.y() <= y_high)
+		&& (obj.center.z() >= z_low && obj.center.z() <= z_high);
 }
 
 inline int insert(Octree* octree, OctNode* node, const sphere& obj, int sphereidx) {
