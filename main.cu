@@ -20,6 +20,7 @@
 #endif
 
 #define NUM_SPHERES (22 * 22 + 1 + 3)
+#define USE_OCTREE
 
 // limited version of checkCudaErrors from helper_cuda.h in CUDA examples
 #define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
@@ -38,7 +39,6 @@ void check_cuda(cudaError_t result, char const* const func, const char* const fi
 // it was blowing up the stack, so we have to turn this into a
 // limited-depth loop instead.  Later code in the book limits to a max
 // depth of 50, so we adapt this a few chapters early on the GPU.
-#define USE_OCTREE
 __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_state, Octree* d_octree, sphere(*d_list)[NUM_SPHERES]) {
     ray cur_ray = r;
     vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
@@ -169,7 +169,7 @@ __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, c
 		(*d_list)[i++] = sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
 		(*d_list)[i++] = sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
 		*rand_state = local_rand_state;
-		int num_hitables = 22 * 22 + 1 + 3;
+		int num_hitables = NUM_SPHERES;
 		hitable** d_hitable = new hitable*[num_hitables];	// convert to array of pointers to keep changes minimal
 		d_hitable[0] = &((*d_list)[0]);
 		for(int i = 1; i < num_hitables; i++)
