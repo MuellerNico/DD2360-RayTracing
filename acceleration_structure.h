@@ -39,7 +39,7 @@ struct Octhit
 	int num_p_hits;
 };
 
-inline __device__ bool intersects(const sphere& obj, const AABB& aabb) { // use const ref
+inline bool intersects(const sphere& obj, const AABB& aabb) {
 	const float x_low = aabb.x_low - obj.radius;
 	const float y_low = aabb.y_low - obj.radius;
 	const float z_low = aabb.z_low - obj.radius;
