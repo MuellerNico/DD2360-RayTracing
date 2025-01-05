@@ -149,7 +149,9 @@ Octree* buildOctree(sphere* d_list, const int num_hitables) {
 	};
 	octree->nodeCount++;
 
-	for (int i = 0; i < num_hitables; i++) {
+	// NOTE: skipping ground sphere at index 0 since it would duplicate into most
+	// leaves. We just add it to every octhit directly. 
+	for (int i = 1; i < num_hitables; i++) { 
 		sphere curr_sphere = d_list[i];
 
 		// insert recursively into tree
@@ -199,7 +201,7 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, O
             OctLeaf curr_leaf = octree->leaves[leaf_index];
             for(int j=0; j < curr_leaf.index_count; j++) {
                 if(hit->num_p_hits < MAX_POSSIBLE_HITS) { 
-                    hit->possible_hits[hit->num_p_hits++] = curr_leaf.sphere_indices[j];
+					hit->possible_hits[hit->num_p_hits++] = curr_leaf.sphere_indices[j];
                 }
             }
         }
@@ -214,7 +216,8 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, O
 
 __device__ void hitTree(Octree* octree, const ray& r, Octhit* hit) {
     //Octhit* hit = new Octhit(); //
-    hit->num_p_hits = 0;
+    hit->possible_hits[0] = 0; // always include ground sphere
+	hit->num_p_hits = 1; // always include ground sphere
     
     traverseTree(octree, r, &octree->nodes[0], hit);
     
