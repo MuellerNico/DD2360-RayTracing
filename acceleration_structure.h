@@ -39,6 +39,13 @@ struct Octhit
 	int num_p_hits;
 };
 
+struct ProcessedHit {
+    bool hit_anything;
+    hit_record rec;
+    real_t closest_so_far;
+	int process_counts;
+};
+
 inline bool intersects(const sphere& obj, AABB aabb) {
 	aabb.x_low -= obj.radius;
 	aabb.y_low -= obj.radius;
@@ -180,8 +187,20 @@ __device__ bool intersect_ray_aabb(const ray& r, const AABB& box) {
 	return true;
 }
 
+// basically the same as hitable_list::hit
+__device__ void processHit(const ray& r, const int sphere_idx, ProcessedHit& result, hitable** world) {
+    hit_record temp_rec;
+    hitable* hit_pointer = ((hitable_list*)(*world))->list[sphere_idx];
+    sphere sphere_obj = *((sphere*)hit_pointer);
+    
+    if (sphere_obj.hit(r, 0.001f, result.closest_so_far, temp_rec)) {
+        result.hit_anything = true;
+        result.closest_so_far = temp_rec.t;
+        result.rec = temp_rec;
+    }
+}
 
-__device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, Octhit* hit) {
+__device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, ProcessedHit& result, hitable** world) {
     if(!intersect_ray_aabb(r, curr_node->aabb)) {
         return;
     }
@@ -198,9 +217,8 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, O
 
             OctLeaf curr_leaf = octree->leaves[leaf_index];
             for(int j=0; j < curr_leaf.index_count; j++) {
-                if(hit->num_p_hits < MAX_POSSIBLE_HITS) { 
-                    hit->possible_hits[hit->num_p_hits++] = curr_leaf.sphere_indices[j];
-                }
+                processHit(r, curr_leaf.sphere_indices[j], result, world);
+				result.process_counts++;
             }
         }
         return;
@@ -208,15 +226,17 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, O
 
     for(int i = 0; i < CHILDREN_COUNT; i++) {
         if(curr_node->children[i] != 0)
-            traverseTree(octree, r, &octree->nodes[curr_node->children[i]], hit);
+            traverseTree(octree, r, &octree->nodes[curr_node->children[i]], result, world);
     }
 }
 
-__device__ void hitTree(Octree* octree, const ray& r, Octhit* hit) {
-    //Octhit* hit = new Octhit(); //
-    hit->num_p_hits = 0;
+__device__ bool hitTree(Octree* octree, const ray& r, hit_record& rec, hitable** world) {
+    ProcessedHit result = {false, {}, FLT_MAX, 0};
+    traverseTree(octree, r, &octree->nodes[0], result, world);
     
-    traverseTree(octree, r, &octree->nodes[0], hit);
-    
-    //return &hit;  // Return pointer to shared memory
+    if (result.hit_anything) {
+        rec = result.rec;
+    }
+	//printf("Processed hits: %d\n", result.process_counts);
+    return result.hit_anything;
 }
