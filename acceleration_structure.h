@@ -6,7 +6,7 @@
 #define NUMBER_NODES (1 + CHILDREN_COUNT + CHILDREN_COUNT * CHILDREN_COUNT + CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT) // Tree height == 3
 #define NUMBER_LEAFS (CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT) // Tree height == 3
 #define SPHERES_PER_LEAF 5
-#define MAX_POSSIBLE_HITS 100
+#define MAX_POSSIBLE_HITS 150
 
 // axis aligned bounding box
 struct AABB {
@@ -144,7 +144,7 @@ Octree* buildOctree(sphere* d_list, const int num_hitables) {
 	OctNode* root = &(octree->nodes[0]);
 	*root = {
 		0,
-		{ -11, -10000, -11, 11, 1, 11 },  // AABB
+		{ -11, -11, -11, 11, 11, 11 },  // AABB
 		{ 0,0,0,0,0,0,0,0 }              // children
 	};
 	octree->nodeCount++;
