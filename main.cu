@@ -19,8 +19,8 @@
 #include <GLFW/glfw3.h>
 #endif
 
-#define NUM_SPHERES (66 * 66 + 1 + 3) // for convenience, always keep square number + 4
-#define SPHERE_RADIUS 0.1f
+#define NUM_SPHERES 2000 // no specific number needed anymore (just > 4)
+#define SPHERE_RADIUS 0.05f // keep spheres small for better performance of the tree (avoid duplicates in leafs)
 #define USE_OCTREE
 
 // limited version of checkCudaErrors from helper_cuda.h in CUDA examples
