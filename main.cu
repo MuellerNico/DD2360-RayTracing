@@ -150,31 +150,37 @@ __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, c
 		(*d_list)[0] = sphere(vec3(0, -1000.0, -1), 1000,
 			new lambertian(vec3(0.5, 0.5, 0.5)));	// ground plane as sphere
 		int i = 1;
+    
+    // create three special medium spheres
+    (*d_list)[i++] = sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
+    (*d_list)[i++] = sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
+    (*d_list)[i++] = sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
+    
 		// create a lot of random small spheres
-		for (int j = 0; j < NUM_SPHERES - 4; j++) {
-			double a = -10 + 20 * RND; // random coordinates between -10 and 10 (bounding box is -11 to 11)
-			double b = -10 + 20 * RND;
-			const real_t choose_mat = RND;
-			const vec3 center(a, SPHERE_RADIUS, b);
-			// randomly choose material
-			if (choose_mat < real_t(0.8f)) {
-				(*d_list)[i++] = sphere(center, SPHERE_RADIUS,
-					new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
-			}
-			else if (choose_mat < real_t(0.95f)) {
-				(*d_list)[i++] = sphere(center, SPHERE_RADIUS,
-					new metal(vec3(0.5f * (1.0f + RND), 0.5f * (1.0f + RND), 0.5f * (1.0f + RND)), 0.5f * RND));
-			}
-			else {
-				(*d_list)[i++] = sphere(center, SPHERE_RADIUS, 
-					new dielectric(1.5));
-			}
-			
+		const int spheres_per_dim = sqrt((float) NUM_SPHERES - 4); // -4 because ignore 3 special spheres and ground
+		//assert(spheres_per_dim * spheres_per_dim + 4 == NUM_SPHERES, "NUM_SPHERES must be a square number + 4");
+		const double spacing = 20. / spheres_per_dim;
+    
+    // create a lot of random small spheres
+		for (double a = -10; a < 10; a += spacing) {
+			for (double b = -10; b < 10; b += spacing) {
+				const real_t choose_mat = RND;
+				const vec3 center(a + RND, SPHERE_RADIUS, b + RND);
+				// randomly choose material
+				if (choose_mat < real_t(0.8f)) {
+					(*d_list)[i++] = sphere(center, SPHERE_RADIUS,
+						new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
+				}
+				else if (choose_mat < real_t(0.95f)) {
+					(*d_list)[i++] = sphere(center, SPHERE_RADIUS,
+						new metal(vec3(0.5f * (1.0f + RND), 0.5f * (1.0f + RND), 0.5f * (1.0f + RND)), 0.5f * RND));
+				}
+				else {
+					(*d_list)[i++] = sphere(center, SPHERE_RADIUS, 
+						new dielectric(1.5));
+				}			
 		}
-		// create three special medium spheres
-		(*d_list)[i++] = sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
-		(*d_list)[i++] = sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
-		(*d_list)[i++] = sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
+
 		*rand_state = local_rand_state;
 		int num_hitables = NUM_SPHERES;
 		hitable** d_hitable = new hitable*[num_hitables];	// convert to array of pointers to keep changes minimal
