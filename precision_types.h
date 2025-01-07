@@ -5,7 +5,7 @@
 #include <fstream>
 
 // comment for float32
-#define USE_FP16
+// #define USE_FP16
 
 // by cuda:
 // https://docs.nvidia.com/cuda/archive/11.7.1/cuda-math-api/group__CUDA__MATH____HALF__FUNCTIONS.html#group__CUDA__MATH____HALF__FUNCTIONS
