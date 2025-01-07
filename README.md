@@ -51,7 +51,12 @@ Use `$ cmake -DUSE_OPENGL=OFF` to disable the live preview window. This option i
 
 Only the first three files contain changes relevant to this project. The rest remains the same as in the [base implementation](https://github.com/rogerallen/raytracinginoneweekendincuda/tree/ch12_where_next_cuda).
 
+## Analysis
 
+The analysis of the application and its results are stored in the folder `analysis`. 
+
+- run_experiment.sh: A shell script that executes `ncu` profiling on all executables listed in the `executables` array. It stores the following profile sections: LaunchStats, SpeedOfLight, MemoryWorkloadAnalysis, ComputeWorkloadAnalysis, Occupancy and stores it in `.csv` and `.ncu-rep` format. Additionally, the memory usage is collected in `.csv` format. It renames the output picture and stores each experiment inside its own subfolder of the `experiments` directory. Each executable/experiment is run five times.
+- evaluations.ipynb: Takes the data gathered and produces the plots and accompanying data used in the report.
 
 ## Contributors
 - Christiane Kobalt
