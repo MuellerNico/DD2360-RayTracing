@@ -9,9 +9,10 @@
 
 // by cuda:
 // https://docs.nvidia.com/cuda/archive/11.7.1/cuda-math-api/group__CUDA__MATH____HALF__FUNCTIONS.html#group__CUDA__MATH____HALF__FUNCTIONS
-// hsqrt(x), hrsqrt(x),
 
 #ifdef USE_FP16
+
+/// @brief floating point type wrapper for NVIDIA __half type. Supports basic arithmetic and logical operations. CPU and GPU compatible through the use of __CUDA_ARCH__ macro. Every operation is performed in FP32 on the CPU.
 struct real_t
 {
     __half val;
@@ -173,8 +174,8 @@ __host__ __device__ __forceinline__ std::istream& operator>>(std::istream& is, r
     return is;
 }
 
-// FP32
 #else
+// Else use default float32 data type, no wrapper needed.
 typedef float real_t;
 
 #endif
