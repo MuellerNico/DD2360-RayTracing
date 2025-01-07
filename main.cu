@@ -19,7 +19,7 @@
 #include <GLFW/glfw3.h>
 #endif
 
-#define NUM_SPHERES 4000 // no specific number needed anymore (just > 4)
+#define NUM_SPHERES 8000 // no specific number needed anymore (just > 4)
 #define SPHERE_RADIUS 0.1f // keep spheres small for better performance of the tree (avoid duplicates in leafs)
 #define USE_OCTREE
 
@@ -355,6 +355,7 @@ int main(int argc, char** argv) {
 	std::cerr << "Rendering a " << nx << "x" << ny << " image with " << ns << " samples per pixel ";
 	std::cerr << "in " << tx << "x" << ty << " blocks.\n";
 	std::cerr << "Number of spheres: " << NUM_SPHERES << "\n";
+	std::cerr << "Sphere radius: " << SPHERE_RADIUS << "\n";
 
 	// print octree usage
 	#ifdef USE_OCTREE

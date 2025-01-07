@@ -12,7 +12,7 @@
 #define TREE_HEIGHT 3
 #define NUMBER_NODES (1 + CHILDREN_COUNT + CHILDREN_COUNT * CHILDREN_COUNT + CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT) // Tree height == 3
 #define NUMBER_LEAFS (CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT) // Tree height == 3
-#define SPHERES_PER_LEAF 20 // needs to be adjusted when NUM_SPHERES is changed
+#define SPHERES_PER_LEAF 30 // needs to be adjusted when NUM_SPHERES is changed
 
 /**
  * @brief Axis-Aligned Bounding Box (AABB) structure
