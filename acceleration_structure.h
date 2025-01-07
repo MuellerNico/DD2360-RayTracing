@@ -1,3 +1,10 @@
+/**
+ * @file acceleration_structure.h
+ * @brief Implementation of an octree-based acceleration structure for ray tracing
+ * 
+ * This file contains the implementation of an octree spatial partitioning structure
+ * used to accelerate ray-sphere intersection tests in a CUDA-based ray tracer.
+ */
 
 #include "sphere.h"
 
@@ -5,39 +12,73 @@
 #define TREE_HEIGHT 3
 #define NUMBER_NODES (1 + CHILDREN_COUNT + CHILDREN_COUNT * CHILDREN_COUNT + CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT) // Tree height == 3
 #define NUMBER_LEAFS (CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT * CHILDREN_COUNT) // Tree height == 3
-#define SPHERES_PER_LEAF 20
+#define SPHERES_PER_LEAF 20 // needs to be adjusted when NUM_SPHERES is changed
 
-// axis aligned bounding box
+/**
+ * @brief Axis-Aligned Bounding Box (AABB) structure
+ * 
+ * Represents a 3D box aligned with the coordinate axes, defined by its minimum
+ * and maximum coordinates in each dimension.
+ */
 struct AABB {
 	float x_low, y_low, z_low;
 	float x_high, y_high, z_high;
 };
 
-struct OctNode {	// is leaf at last level
-	int level; // == 3 indicates leaf
-	AABB aabb;
-	int children[CHILDREN_COUNT];
+/**
+ * @brief Node structure for the octree
+ * 
+ * Represents an internal node in the octree. Leaf nodes are handled separately
+ * in the OctLeaf structure.
+ */
+struct OctNode {
+    int level;                      ///< Current depth in the tree (3 indicates leaf parent)
+    AABB aabb;                      ///< Bounding box for this node
+    int children[CHILDREN_COUNT];    ///< Indices of child nodes or leaves
 };
 
-struct OctLeaf
-{
-	int sphere_indices[SPHERES_PER_LEAF];
-	int index_count;
+/**
+ * @brief Leaf node structure for the octree
+ * 
+ * Stores references to the spheres that intersect with this leaf's volume.
+ */
+struct OctLeaf {
+    int sphere_indices[SPHERES_PER_LEAF];  ///< Indices of spheres in this leaf
+    int index_count;                       ///< Number of spheres currently stored
 };
 
+/**
+ * @brief Main octree structure
+ * 
+ * Contains all nodes and leaves of the octree, along with counters for
+ * tracking the number of allocated nodes and leaves.
+ */
 struct Octree {
-	OctNode nodes[NUMBER_NODES];
-	OctLeaf leaves[NUMBER_LEAFS + 1]; // skip index 0 
-	int nodeCount = 0;
-	int leafCount = 1;	// workaround
+    OctNode nodes[NUMBER_NODES];      ///< Array of all nodes in the tree
+    OctLeaf leaves[NUMBER_LEAFS + 1]; ///< Array of all leaves (index 0 is skipped)
+    int nodeCount = 0;                ///< Number of nodes currently in use
+    int leafCount = 1;                ///< Number of leaves currently in use
 };
 
+/**
+ * @brief Structure to track intersection testing results
+ * 
+ * Used during ray traversal to keep track of the closest intersection
+ * and associated data.
+ */
 struct ProcessedHit {
     bool hit_anything;
     hit_record rec;
     real_t closest_so_far;
 };
 
+/**
+ * @brief Tests if a sphere intersects with an AABB
+ * 
+ * @param obj The sphere to test
+ * @param aabb The axis-aligned bounding box
+ * @return true if the sphere intersects the AABB, false otherwise
+ */
 inline bool intersects(const sphere& obj, AABB aabb) {
 	aabb.x_low -= obj.radius;
 	aabb.y_low -= obj.radius;
@@ -51,6 +92,15 @@ inline bool intersects(const sphere& obj, AABB aabb) {
 		&& (obj.center.z() >= aabb.z_low && obj.center.z() <= aabb.z_high);
 }
 
+/**
+ * @brief Inserts a sphere into the octree
+ * 
+ * @param octree Pointer to the octree
+ * @param node Current node being processed
+ * @param obj Sphere to insert
+ * @param sphereidx Index of the sphere in the global sphere array
+ * @return Number of leaf nodes the sphere was inserted into
+ */
 inline int insert(Octree* octree, OctNode* node, const sphere& obj, int sphereidx) {
 	if (!intersects(obj, node->aabb)) {
 		printf("Something went wrong. Why is sphere not in range of nodes AABB? Sphere origin: %f %f %f\n", obj.center.e[0], obj.center.e[1], obj.center.e[2]);
@@ -76,7 +126,7 @@ inline int insert(Octree* octree, OctNode* node, const sphere& obj, int sphereid
 				// enough space, insert sphere
 				curr_leaf->sphere_indices[curr_leaf->index_count++] = sphereidx;
 				return 1;
-			}else
+			} else
 			{
 				// need to insert in next leaf
 				continue;
@@ -132,9 +182,16 @@ inline int insert(Octree* octree, OctNode* node, const sphere& obj, int sphereid
 		}
 	}
 
-	return insertCounter;
+	return insertCounter; // keep track of duplicate insertion
 }
 
+/**
+ * @brief Builds an octree from an array of spheres
+ * 
+ * @param d_list Array of spheres to include in the tree
+ * @param num_hitables Number of spheres in the array
+ * @return Pointer to the constructed octree
+ */
 Octree* buildOctree(sphere* d_list, const int num_hitables) {
 
 	Octree* octree = new Octree();
@@ -153,12 +210,19 @@ Octree* buildOctree(sphere* d_list, const int num_hitables) {
 
 		// insert recursively into tree
 		int duplicateCount = insert(octree, root, curr_sphere, i);
-		//std::cout << "sphere " << i << " duplicated " << duplicateCount << " times in tree\n";
+		//std::cout << "sphere " << i << " duplicated " << duplicateCount << " times in tree\n"; // debug
 	}
 
 	return octree;
 }
 
+/**
+ * @brief Tests if a ray intersects with an AABB
+ * 
+ * @param r The ray to test
+ * @param box The axis-aligned bounding box
+ * @return true if the ray intersects the AABB, false otherwise
+ */
 __device__ bool intersect_ray_aabb(const ray& r, const AABB& box) {
 	float tmin = (box.x_low - r.origin().x()) / r.direction().x();
 	float tmax = (box.x_high - r.origin().x()) / r.direction().x();
@@ -179,8 +243,16 @@ __device__ bool intersect_ray_aabb(const ray& r, const AABB& box) {
 	return true;
 }
 
+/**
+ * @brief Processes a potential hit between a ray and a sphere
+ * 
+ * @param r The ray being traced
+ * @param sphere_idx Index of the sphere to test
+ * @param result Structure to store the intersection result
+ * @param world Pointer to the world containing all objects
+ */
 __device__ void processHit(const ray& r, const int sphere_idx, ProcessedHit& result, hitable** world) {
-    if (sphere_idx == 0) return;
+    if (sphere_idx == 0) return; // should never happen, but just in case. Ground sphere is not in tree
     hit_record temp_rec;
     hitable* hit_pointer = ((hitable_list*)(*world))->list[sphere_idx];
     sphere sphere_obj = *((sphere*)hit_pointer);
@@ -192,9 +264,18 @@ __device__ void processHit(const ray& r, const int sphere_idx, ProcessedHit& res
     }
 }
 
+/**
+ * @brief Recursively traverses the octree to find ray intersections
+ * 
+ * @param octree Pointer to the octree
+ * @param r The ray being traced
+ * @param curr_node Current node being processed
+ * @param result Structure to store the intersection result
+ * @param world Pointer to the world containing all objects
+ */
 __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, ProcessedHit& result, hitable** world) {
     if(!intersect_ray_aabb(r, curr_node->aabb)) {
-        return;
+        return; // no intersection possible in this node
     }
 
     if (curr_node->level == TREE_HEIGHT) { // is parent of leaf
@@ -206,21 +287,35 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, P
                 printf("leaf_index should never be bigger than leaf_count. Something went wrong.\n");
                 return;
             }
-
+			// iterate over spheres in leaf and check hit
             OctLeaf curr_leaf = octree->leaves[leaf_index];
-            for(int j=0; j < curr_leaf.index_count; j++) {
-                processHit(r, curr_leaf.sphere_indices[j], result, world);
+            for(int j=0; j < curr_leaf.index_count; j++) { 
+                processHit(r, curr_leaf.sphere_indices[j], result, world); 
             }
         }
         return;
     }
 
+	// recursively traverse children
     for(int i = 0; i < CHILDREN_COUNT; i++) {
         if(curr_node->children[i] != 0)
             traverseTree(octree, r, &octree->nodes[curr_node->children[i]], result, world);
     }
 }
 
+/**
+ * @brief Tests if a ray intersects with any object in the octree
+ * 
+ * This is the main entry point for ray intersection testing using the octree.
+ * It first checks against the ground sphere (index 0) and then traverses the
+ * octree to find the closest intersection with any other sphere.
+ * 
+ * @param octree Pointer to the octree
+ * @param r The ray to test
+ * @param rec Record to store intersection data
+ * @param world Pointer to the world containing all objects
+ * @return true if the ray intersects any object, false otherwise
+ */
 __device__ bool hitTree(Octree* octree, const ray& r, hit_record& rec, hitable** world) {
     
     // first check ground sphere (index 0)
