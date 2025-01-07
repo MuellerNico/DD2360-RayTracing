@@ -288,7 +288,7 @@ __device__ void traverseTree(Octree* octree, const ray& r, OctNode* curr_node, P
                 return;
             }
 			// iterate over spheres in leaf and check hit
-            OctLeaf curr_leaf = octree->leaves[leaf_index];
+            OctLeaf& curr_leaf = octree->leaves[leaf_index];
             for(int j=0; j < curr_leaf.index_count; j++) { 
                 processHit(r, curr_leaf.sphere_indices[j], result, world); 
             }

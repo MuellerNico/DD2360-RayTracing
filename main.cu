@@ -351,9 +351,19 @@ int main(int argc, char** argv) {
 	const int tx = 8;
 	const int ty = 8;
 
+	// print image and grid configuration
 	std::cerr << "Rendering a " << nx << "x" << ny << " image with " << ns << " samples per pixel ";
 	std::cerr << "in " << tx << "x" << ty << " blocks.\n";
+	std::cerr << "Number of spheres: " << NUM_SPHERES << "\n";
 
+	// print octree usage
+	#ifdef USE_OCTREE
+	std::cerr << "Use octree: ON\n";
+	#else
+	std::cerr << "Use octree: OFF\n";
+	#endif
+
+	// print ppm output mode
 	int output_mode = 0; // 0 = to stdout (default), 1 = disabled, 2 = to window, 3 = to file
 	if (argc > 1) {
 		output_mode = std::stoi(argv[1]);
