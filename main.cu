@@ -161,7 +161,7 @@ __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, c
 		//assert(spheres_per_dim * spheres_per_dim + 4 == NUM_SPHERES, "NUM_SPHERES must be a square number + 4");
 		const double spacing = 20. / spheres_per_dim;
     
-    // create a lot of random small spheres
+    	// create a lot of random small spheres
 		for (double a = -10; a < 10; a += spacing) {
 			for (double b = -10; b < 10; b += spacing) {
 				const real_t choose_mat = RND;
@@ -179,6 +179,7 @@ __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, c
 					(*d_list)[i++] = sphere(center, SPHERE_RADIUS, 
 						new dielectric(1.5));
 				}			
+			}
 		}
 
 		*rand_state = local_rand_state;
