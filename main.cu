@@ -19,8 +19,8 @@
 #include <GLFW/glfw3.h>
 #endif
 
-#define NUM_SPHERES (66 * 66 + 1 + 3) // for convenience, always keep square number + 4
-#define SPHERE_RADIUS 0.1f
+#define NUM_SPHERES 2000 // no specific number needed anymore (just > 4)
+#define SPHERE_RADIUS 0.05f // keep spheres small for better performance of the tree (avoid duplicates in leafs)
 #define USE_OCTREE
 
 // limited version of checkCudaErrors from helper_cuda.h in CUDA examples
@@ -150,17 +150,18 @@ __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, c
 		(*d_list)[0] = sphere(vec3(0, -1000.0, -1), 1000,
 			new lambertian(vec3(0.5, 0.5, 0.5)));	// ground plane as sphere
 		int i = 1;
+    
+    // create three special medium spheres
+    (*d_list)[i++] = sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
+    (*d_list)[i++] = sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
+    (*d_list)[i++] = sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
+    
 		// create a lot of random small spheres
 		const int spheres_per_dim = sqrt((float) NUM_SPHERES - 4); // -4 because ignore 3 special spheres and ground
 		//assert(spheres_per_dim * spheres_per_dim + 4 == NUM_SPHERES, "NUM_SPHERES must be a square number + 4");
 		const double spacing = 20. / spheres_per_dim;
-
-        // create three special medium spheres
-        (*d_list)[i++] = sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
-        (*d_list)[i++] = sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
-        (*d_list)[i++] = sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
-
-        // create a lot of random small spheres
+    
+    // create a lot of random small spheres
 		for (double a = -10; a < 10; a += spacing) {
 			for (double b = -10; b < 10; b += spacing) {
 				const real_t choose_mat = RND;
@@ -177,8 +178,7 @@ __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, c
 				else {
 					(*d_list)[i++] = sphere(center, SPHERE_RADIUS, 
 						new dielectric(1.5));
-				}
-			}
+				}			
 		}
 
 		*rand_state = local_rand_state;
