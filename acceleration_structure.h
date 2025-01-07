@@ -10,8 +10,8 @@
 
 // axis aligned bounding box
 struct AABB {
-	float x_low, y_low, z_low;
-	float x_high, y_high, z_high;
+	real_t x_low, y_low, z_low;
+	real_t x_high, y_high, z_high;
 };
 
 struct OctNode {	// is leaf at last level
@@ -186,7 +186,7 @@ __device__ void processHit(const ray& r, const int sphere_idx, ProcessedHit& res
     hitable* hit_pointer = ((hitable_list*)(*world))->list[sphere_idx];
     sphere sphere_obj = *((sphere*)hit_pointer);
     
-    if (sphere_obj.hit(r, 0.001f, result.closest_so_far, temp_rec)) {
+    if (sphere_obj.hit(r, real_t(0.001f), result.closest_so_far, temp_rec)) {
         result.hit_anything = true;
         result.closest_so_far = temp_rec.t;
         result.rec = temp_rec;
@@ -231,7 +231,7 @@ __device__ bool hitTree(Octree* octree, const ray& r, hit_record& rec, hitable**
     bool hit_ground = sphere_obj.hit(r, 0.001f, FLT_MAX, ground_rec);
     
     // init result with ground sphere's hit distance if it was hit
-    ProcessedHit result = {false, {}, hit_ground ? ground_rec.t : FLT_MAX};
+    ProcessedHit result = {false, {}, hit_ground ? ground_rec.t : real_t(FLT_MAX)};
     if (hit_ground) {
         result.hit_anything = true;
         result.rec = ground_rec;
