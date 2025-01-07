@@ -151,19 +151,17 @@ __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, c
 			new lambertian(vec3(0.5, 0.5, 0.5)));	// ground plane as sphere
 		int i = 1;
     
-    // create three special medium spheres
-    (*d_list)[i++] = sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
-    (*d_list)[i++] = sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
-    (*d_list)[i++] = sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
-    
-		// create a lot of random small spheres
-		const int spheres_per_dim = sqrt((float) NUM_SPHERES - 4); // -4 because ignore 3 special spheres and ground
-		//assert(spheres_per_dim * spheres_per_dim + 4 == NUM_SPHERES, "NUM_SPHERES must be a square number + 4");
-		const double spacing = 20. / spheres_per_dim;
+		// create three special medium spheres
+		(*d_list)[i++] = sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
+		(*d_list)[i++] = sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
+		(*d_list)[i++] = sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
     
     	// create a lot of random small spheres
+		const int spheres_per_dim = sqrt((float) NUM_SPHERES - 4); // -4 because ignore 3 special spheres and ground
+		const double spacing = 20. / spheres_per_dim;
+    
 		for (double a = -10; a < 10; a += spacing) {
-			for (double b = -10; b < 10; b += spacing) {
+			for (double b = -10; b < 10 && i < NUM_SPHERES; b += spacing) {
 				const real_t choose_mat = RND;
 				const vec3 center(a + RND, SPHERE_RADIUS, b + RND);
 				// randomly choose material
@@ -186,8 +184,7 @@ __global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, c
 		int num_hitables = NUM_SPHERES;
 		hitable** d_hitable = new hitable*[num_hitables];	// convert to array of pointers to keep changes minimal
 		d_hitable[0] = &((*d_list)[0]);
-		for(int i = 1; i < num_hitables; i++)
-		{
+		for(int i = 1; i < num_hitables; i++) {
 			d_hitable[i] = &((*d_list)[i]);
 		}
 		*d_world = new hitable_list(d_hitable, num_hitables );
