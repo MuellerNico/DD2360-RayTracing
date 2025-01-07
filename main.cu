@@ -12,11 +12,16 @@
 #include <string>
 #include <vector>
 #include "precision_types.h"
+#include "acceleration_structure.h"
 
 #ifdef USE_OPENGL
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 #endif
+
+#define NUM_SPHERES 2000 // no specific number needed anymore (just > 4)
+#define SPHERE_RADIUS 0.05f // keep spheres small for better performance of the tree (avoid duplicates in leafs)
+#define USE_OCTREE
 
 // limited version of checkCudaErrors from helper_cuda.h in CUDA examples
 #define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
@@ -35,12 +40,20 @@ void check_cuda(cudaError_t result, char const* const func, const char* const fi
 // it was blowing up the stack, so we have to turn this into a
 // limited-depth loop instead.  Later code in the book limits to a max
 // depth of 50, so we adapt this a few chapters early on the GPU.
-__device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_state) {
-	ray cur_ray = r;
-	vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
-	for (int i = 0; i < 50; i++) {
-		hit_record rec;
-		if ((*world)->hit(cur_ray, 0.001f, FLT_MAX, rec)) {
+__device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_state, Octree* d_octree, sphere(*d_list)[NUM_SPHERES]) {
+    ray cur_ray = r;
+    vec3 cur_attenuation = vec3(1.0, 1.0, 1.0);
+    
+    for (int i = 0; i < 50; i++) {
+        bool hit_anything = false;
+        hit_record rec;
+        
+#ifdef USE_OCTREE
+        hit_anything = hitTree(d_octree, cur_ray, rec, world);
+#else
+		hit_anything = (*world)->hit(cur_ray, 0.001f, FLT_MAX, rec);
+#endif
+		if (hit_anything) {
 			ray scattered;
 			vec3 attenuation;
 			if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, local_rand_state)) {
@@ -58,9 +71,10 @@ __device__ vec3 color(const ray& r, hitable** world, curandState* local_rand_sta
 			return cur_attenuation * c;
 		}
 	}
-	return vec3(0.0, 0.0, 0.0); // exceeded recursion
+	return vec3(0.0, 0.0, 0.0);
 }
 
+        
 __global__ void rand_init(curandState* rand_state) {
 	if (threadIdx.x == 0 && blockIdx.x == 0) {
 		curand_init(1984, 0, 0, rand_state);
@@ -79,7 +93,7 @@ __global__ void render_init(int max_x, int max_y, curandState* rand_state) {
 	curand_init(1984 + pixel_index, 0, 0, &rand_state[pixel_index]);
 }
 
-__global__ void render(vec3* fb, int max_x, int max_y, int ns, camera** cam, hitable** world, curandState* rand_state) {
+__global__ void render(vec3* fb, int max_x, int max_y, int ns, camera** cam, hitable** world, curandState* rand_state, Octree* d_octree, sphere(*d_list)[NUM_SPHERES]) {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	int j = threadIdx.y + blockIdx.y * blockDim.y;
 	if ((i >= max_x) || (j >= max_y)) return;
@@ -90,17 +104,19 @@ __global__ void render(vec3* fb, int max_x, int max_y, int ns, camera** cam, hit
 		real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
 		real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
 		ray r = (*cam)->get_ray(u, v, &local_rand_state);
-		col += color(r, world, &local_rand_state);
+		col += color(r, world, &local_rand_state, d_octree, d_list);
 	}
+	
 	rand_state[pixel_index] = local_rand_state;
 	col /= real_t(ns);
 	col[0] = sqrt(col[0]);
 	col[1] = sqrt(col[1]);
 	col[2] = sqrt(col[2]);
 	fb[pixel_index] = col;
+	
 }
 
-__global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_sample, camera** cam, hitable** world, curandState* rand_state) {
+__global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_sample, camera** cam, hitable** world, curandState* rand_state, Octree* d_octree, sphere(*d_list)[NUM_SPHERES]) {
 	int i = threadIdx.x + blockIdx.x * blockDim.x;
 	int j = threadIdx.y + blockIdx.y * blockDim.y;
 	if ((i >= max_x) || (j >= max_y)) return;
@@ -112,7 +128,7 @@ __global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_s
 	real_t u = real_t(i + curand_uniform(&local_rand_state)) / real_t(max_x);
 	real_t v = real_t(j + curand_uniform(&local_rand_state)) / real_t(max_y);
 	ray r = (*cam)->get_ray(u, v, &local_rand_state);
-	col = color(r, world, &local_rand_state);
+	col = color(r, world, &local_rand_state, d_octree, d_list);
 
 	rand_state[pixel_index] = local_rand_state;
 
@@ -127,34 +143,47 @@ __global__ void render_progressive(vec3* fb, int max_x, int max_y, int current_s
 
 #define RND (curand_uniform(&local_rand_state))
 
-__global__ void create_world(hitable** d_list, hitable** d_world, camera** d_camera, int nx, int ny, curandState* rand_state) {
+__global__ void create_world(sphere (*d_list)[NUM_SPHERES], hitable** d_world, camera** d_camera, int nx, int ny, curandState* rand_state) {
 	if (threadIdx.x == 0 && blockIdx.x == 0) {
 		curandState local_rand_state = *rand_state;
-		d_list[0] = new sphere(vec3(0, -1000.0, -1), 1000,
-			new lambertian(vec3(0.5, 0.5, 0.5)));
+		// create one huge sphere as the ground plane
+		(*d_list)[0] = sphere(vec3(0, -1000.0, -1), 1000,
+			new lambertian(vec3(0.5, 0.5, 0.5)));	// ground plane as sphere
 		int i = 1;
-		for (int a = -11; a < 11; a++) {
-			for (int b = -11; b < 11; b++) {
-				const real_t choose_mat = RND;
-				const vec3 center(a + RND, 0.2, b + RND);
-				if (choose_mat < real_t(0.8f)) {
-					d_list[i++] = new sphere(center, 0.2,
-						new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
-				}
-				else if (choose_mat < real_t(0.95f)) {
-					d_list[i++] = new sphere(center, 0.2,
-						new metal(vec3(0.5f * (1.0f + RND), 0.5f * (1.0f + RND), 0.5f * (1.0f + RND)), 0.5f * RND));
-				}
-				else {
-					d_list[i++] = new sphere(center, 0.2, new dielectric(1.5));
-				}
+		// create a lot of random small spheres
+		for (int j = 0; j < NUM_SPHERES - 4; j++) {
+			double a = -10 + 20 * RND; // random coordinates between -10 and 10 (bounding box is -11 to 11)
+			double b = -10 + 20 * RND;
+			const real_t choose_mat = RND;
+			const vec3 center(a, SPHERE_RADIUS, b);
+			// randomly choose material
+			if (choose_mat < real_t(0.8f)) {
+				(*d_list)[i++] = sphere(center, SPHERE_RADIUS,
+					new lambertian(vec3(RND * RND, RND * RND, RND * RND)));
 			}
+			else if (choose_mat < real_t(0.95f)) {
+				(*d_list)[i++] = sphere(center, SPHERE_RADIUS,
+					new metal(vec3(0.5f * (1.0f + RND), 0.5f * (1.0f + RND), 0.5f * (1.0f + RND)), 0.5f * RND));
+			}
+			else {
+				(*d_list)[i++] = sphere(center, SPHERE_RADIUS, 
+					new dielectric(1.5));
+			}
+			
 		}
-		d_list[i++] = new sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
-		d_list[i++] = new sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
-		d_list[i++] = new sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
+		// create three special medium spheres
+		(*d_list)[i++] = sphere(vec3(0, 1, 0), 1.0, new dielectric(1.5));
+		(*d_list)[i++] = sphere(vec3(-4, 1, 0), 1.0, new lambertian(vec3(0.4, 0.2, 0.1)));
+		(*d_list)[i++] = sphere(vec3(4, 1, 0), 1.0, new metal(vec3(0.7, 0.6, 0.5), 0.0));
 		*rand_state = local_rand_state;
-		*d_world = new hitable_list(d_list, 22 * 22 + 1 + 3);
+		int num_hitables = NUM_SPHERES;
+		hitable** d_hitable = new hitable*[num_hitables];	// convert to array of pointers to keep changes minimal
+		d_hitable[0] = &((*d_list)[0]);
+		for(int i = 1; i < num_hitables; i++)
+		{
+			d_hitable[i] = &((*d_list)[i]);
+		}
+		*d_world = new hitable_list(d_hitable, num_hitables );
 
 		const vec3 lookfrom(13, 2, 3);
 		const vec3 lookat(0, 0, 0);
@@ -170,17 +199,23 @@ __global__ void create_world(hitable** d_list, hitable** d_world, camera** d_cam
 	}
 }
 
-__global__ void free_world(hitable** d_list, hitable** d_world, camera** d_camera) {
-	for (int i = 0; i < 22 * 22 + 1 + 3; i++) {
-		delete ((sphere*)d_list[i])->mat_ptr;
-		delete d_list[i];
-	}
-	delete* d_world;
-	delete* d_camera;
+__global__ void free_world(sphere(*d_list)[NUM_SPHERES], hitable** d_world, camera** d_camera) {
+    // Only free the materials and internal allocations
+    for (int i = 0; i < NUM_SPHERES; i++) {
+        delete (*d_list)[i].mat_ptr;
+    }
+    
+    // Free the hitable array inside hitable_list
+    hitable_list* world = (hitable_list*)(*d_world);
+    delete[] world->list;  // Free the array of hitable pointers
+    delete world;         // Free the hitable_list object
+    
+    // Free the camera object but not the pointer
+    delete *d_camera;
 }
 
 #ifdef USE_OPENGL
-int render_in_window(const int nx, const int ny, dim3 blocks, dim3 threads, vec3* fb, camera** d_camera, hitable** d_world, curandState* d_rand_state)
+int render_in_window(const int nx, const int ny, dim3 blocks, dim3 threads, vec3* fb, camera** d_camera, hitable** d_world, curandState* d_rand_state, Octree* d_octree, sphere(*d_list)[NUM_SPHERES])
 {
 	const int num_pixels = nx * ny;
 
@@ -233,7 +268,7 @@ int render_in_window(const int nx, const int ny, dim3 blocks, dim3 threads, vec3
 		current_sample++;
 
 		// Launch render kernel
-		render_progressive << <blocks, threads >> > (fb, nx, ny, current_sample, d_camera, d_world, d_rand_state);
+		render_progressive << <blocks, threads >> > (fb, nx, ny, current_sample, d_camera, d_world, d_rand_state, d_octree, d_list);
 		checkCudaErrors(cudaGetLastError());
 		checkCudaErrors(cudaDeviceSynchronize());
 
@@ -340,14 +375,29 @@ int main(int argc, char** argv) {
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// make our world of hitables & the camera
-	hitable** d_list;
-	const int num_hitables = 22 * 22 + 1 + 3;
-	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_list), num_hitables * sizeof(hitable*)));
+	sphere (*d_list)[NUM_SPHERES];
+	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_list), NUM_SPHERES * sizeof(sphere)));
 	hitable** d_world;
 	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_world), sizeof(hitable*)));
 	camera** d_camera;
 	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_camera), sizeof(camera*)));
 	create_world << <1, 1 >> > (d_list, d_world, d_camera, nx, ny, d_rand_state2);
+	checkCudaErrors(cudaGetLastError());
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// copy spheres to CPU to fill into octree
+	// first copy the addresses on the GPU
+	sphere* cpu_spheres = static_cast<sphere*>(malloc(sizeof(sphere) * NUM_SPHERES));
+	checkCudaErrors(cudaMemcpy(cpu_spheres, d_list, NUM_SPHERES * sizeof(sphere), cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// build octree
+	Octree* octree = buildOctree(cpu_spheres, NUM_SPHERES);
+
+	// upload octree to gpu
+	Octree* d_octree;
+	checkCudaErrors(cudaMalloc(reinterpret_cast<void**>(&d_octree),sizeof(Octree)));
+	checkCudaErrors(cudaMemcpy(d_octree, octree, sizeof(Octree), cudaMemcpyHostToDevice));
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());
 
@@ -359,7 +409,7 @@ int main(int argc, char** argv) {
 	render_init << <blocks, threads >> > (nx, ny, d_rand_state);
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());
-	render << <blocks, threads >> > (fb, nx, ny, ns, d_camera, d_world, d_rand_state);
+	render << <blocks, threads >> > (fb, nx, ny, ns, d_camera, d_world, d_rand_state, d_octree, d_list);
 	checkCudaErrors(cudaGetLastError());
 	checkCudaErrors(cudaDeviceSynchronize());
 	stop = clock();
@@ -377,7 +427,7 @@ int main(int argc, char** argv) {
 		break;
 #ifdef USE_OPENGL
 	case 2:
-		render_in_window(nx, ny, blocks, threads, fb, d_camera, d_world, d_rand_state);
+		render_in_window(nx, ny, blocks, threads, fb, d_camera, d_world, d_rand_state, d_octree, d_list);
 		break;
 #endif
 	case 3:
@@ -388,15 +438,25 @@ int main(int argc, char** argv) {
 	}
 
 	// clean up
-	checkCudaErrors(cudaDeviceSynchronize());
-	free_world << <1, 1 >> > (d_list, d_world, d_camera);
-	checkCudaErrors(cudaGetLastError());
-	checkCudaErrors(cudaFree(d_camera));
-	checkCudaErrors(cudaFree(d_world));
-	checkCudaErrors(cudaFree(d_list));
-	checkCudaErrors(cudaFree(d_rand_state));
-	checkCudaErrors(cudaFree(d_rand_state2));
-	checkCudaErrors(cudaFree(fb));
+    checkCudaErrors(cudaDeviceSynchronize());
+    
+    // First run the kernel to free device-side allocations
+    free_world<<<1, 1>>>(d_list, d_world, d_camera);
+    checkCudaErrors(cudaGetLastError());
+    checkCudaErrors(cudaDeviceSynchronize());
+    
+    // Then free the CUDA-allocated memory
+    checkCudaErrors(cudaFree(d_camera));
+    checkCudaErrors(cudaFree(d_world));
+    checkCudaErrors(cudaFree(d_list));
+    checkCudaErrors(cudaFree(d_rand_state));
+    checkCudaErrors(cudaFree(d_rand_state2));
+    checkCudaErrors(cudaFree(fb));
+    
+    // Free octree-related memory
+    checkCudaErrors(cudaFree(d_octree));
+    free(octree);
+    free(cpu_spheres);
 
-	cudaDeviceReset();
+    cudaDeviceReset();
 }
